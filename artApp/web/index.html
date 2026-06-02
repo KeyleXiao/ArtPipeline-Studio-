@@ -48,39 +48,6 @@
           <p class="brand-sub" data-i18n="app.subtitle">KEYLE· 美术流水线</p>
         </div>
       </div>
-      <nav class="toolbar-nav" aria-label="Main actions">
-        <div class="nav-group">
-          <button type="button" class="btn nav-trigger primary" aria-haspopup="menu" aria-expanded="false">
-            <span data-i18n="toolbar.menuGenerate">生成</span>
-            <span class="nav-caret" aria-hidden="true">▾</span>
-          </button>
-          <div class="nav-dropdown hidden" role="menu">
-            <button type="button" class="nav-item accent" data-action="gen-selected" role="menuitem" data-i18n="toolbar.genSelected">生成选中</button>
-            <button type="button" class="nav-item" data-action="gen-category" role="menuitem" data-i18n="toolbar.genCategory">生成本类</button>
-            <button type="button" class="nav-item" data-action="gen-export" role="menuitem" data-i18n="toolbar.genExport">生成并导出</button>
-          </div>
-        </div>
-        <div class="nav-group">
-          <button type="button" class="btn nav-trigger" aria-haspopup="menu" aria-expanded="false">
-            <span data-i18n="toolbar.menuExport">导出</span>
-            <span class="nav-caret" aria-hidden="true">▾</span>
-          </button>
-          <div class="nav-dropdown hidden" role="menu">
-            <button type="button" class="nav-item" data-action="export" role="menuitem" data-i18n="toolbar.export">导出到游戏引擎</button>
-            <button type="button" class="nav-item" data-action="export-category" role="menuitem" data-i18n="toolbar.exportCategory">导出本类</button>
-          </div>
-        </div>
-        <div class="nav-group">
-          <button type="button" class="btn nav-trigger ghost" aria-haspopup="menu" aria-expanded="false">
-            <span data-i18n="toolbar.menuConfig">配置</span>
-            <span class="nav-caret" aria-hidden="true">▾</span>
-          </button>
-          <div class="nav-dropdown hidden" role="menu">
-            <button type="button" class="nav-item" data-action="save-config" role="menuitem" data-i18n="toolbar.saveConfig">保存配置</button>
-            <button type="button" class="nav-item" data-action="reload-config" role="menuitem" data-i18n="toolbar.reloadConfig">重载配置</button>
-          </div>
-        </div>
-      </nav>
       <div class="topbar-right">
         <div class="lang-switch" role="group" aria-label="Language">
           <button type="button" class="lang-btn" data-lang="zh-CN" data-i18n="lang.zh">中文</button>
@@ -190,6 +157,7 @@
             <label class="span2"><span data-i18n="form.subject">说明</span><input name="subject" /></label>
             <label class="span2"><span data-i18n="form.checkpoint">Checkpoint</span><select name="checkpoint" id="asset-ckpt"></select></label>
             <label class="check check-modern span2"><input name="enabled" type="checkbox" /><span class="check-ui"></span><span class="check-text" data-i18n="form.enabled">启用（参与批量生成）</span></label>
+            <p class="muted sm span2" data-i18n="form.enabledHint">未勾选时仍可右键单独「生成此资源」；整类批量只会处理已启用资源</p>
             <fieldset class="span2 radio-field">
               <legend data-i18n="form.removeBg">剔除背景</legend>
               <div class="radio-seg" role="radiogroup">
@@ -350,31 +318,6 @@
       </section>
     </main>
 
-    <div class="job-float hidden" id="job-float" role="status" aria-live="polite">
-      <div class="job-float-aura" aria-hidden="true"></div>
-      <div class="job-float-card">
-        <div class="job-float-head" id="job-float-handle" data-i18n-title="job.floatDrag" title="拖动移动">
-          <div class="job-float-ring" aria-hidden="true"><span></span></div>
-          <div class="job-float-copy">
-            <div class="job-float-title" id="job-float-title" data-i18n="job.generating">生成中</div>
-            <div class="job-float-file" id="job-float-file">—</div>
-          </div>
-          <div class="job-float-pct" id="job-float-pct">0%</div>
-        </div>
-        <div class="job-float-bar">
-          <div class="job-float-track">
-            <div class="job-float-fill" id="job-float-fill"></div>
-            <div class="job-float-shimmer" aria-hidden="true"></div>
-          </div>
-          <div class="job-float-batch" id="job-float-batch"></div>
-        </div>
-        <div class="job-float-foot">
-          <span class="job-float-status" id="job-float-status"></span>
-          <button type="button" class="job-float-cancel" id="job-float-cancel" data-i18n="job.cancel">停止</button>
-        </div>
-      </div>
-    </div>
-
     <button type="button" class="log-fab" id="log-fab" aria-expanded="false" data-i18n="log.fab" data-i18n-title="log.fabTitle" title="拖动移动 · 点击打开日志">日志</button>
 
     <aside class="log-drawer" id="log-drawer" aria-hidden="true">
@@ -391,6 +334,31 @@
       </div>
       <pre class="log-body" id="log-body"></pre>
     </aside>
+  </div>
+
+  <div class="job-float hidden" id="job-float" role="status" aria-live="polite">
+    <div class="job-float-aura" aria-hidden="true"></div>
+    <div class="job-float-card">
+      <div class="job-float-head" id="job-float-handle" data-i18n-title="job.floatDrag" title="拖动移动">
+        <div class="job-float-ring" aria-hidden="true"><span></span></div>
+        <div class="job-float-copy">
+          <div class="job-float-title" id="job-float-title" data-i18n="job.generating">生成中</div>
+          <div class="job-float-file" id="job-float-file">—</div>
+        </div>
+        <div class="job-float-pct" id="job-float-pct">0%</div>
+      </div>
+      <div class="job-float-bar">
+        <div class="job-float-track">
+          <div class="job-float-fill" id="job-float-fill"></div>
+          <div class="job-float-shimmer" aria-hidden="true"></div>
+        </div>
+        <div class="job-float-batch" id="job-float-batch"></div>
+      </div>
+      <div class="job-float-foot">
+        <span class="job-float-status" id="job-float-status"></span>
+        <button type="button" class="job-float-cancel" id="job-float-cancel" data-i18n="job.cancel">停止</button>
+      </div>
+    </div>
   </div>
 
   <dialog id="dlg-new-cat">
@@ -465,12 +433,20 @@
   </dialog>
 
   <div class="ctx-menu hidden" id="cat-ctx-menu" role="menu" data-i18n-aria="ctx.catMenuAria" aria-label="分类菜单">
+    <button type="button" class="ctx-item accent" data-ctx="gen-category" data-i18n="ctx.catGenerate">生成本类</button>
+    <button type="button" class="ctx-item" data-ctx="gen-category-export" data-i18n="ctx.catGenerateExport">生成并导出本类</button>
+    <button type="button" class="ctx-item" data-ctx="export-category" data-i18n="ctx.catExport">导出本类</button>
+    <div class="ctx-sep" role="separator"></div>
     <button type="button" class="ctx-item" data-ctx="rename" data-i18n="ctx.catRename">重命名…</button>
     <div class="ctx-sep" role="separator"></div>
     <button type="button" class="ctx-item danger" data-ctx="delete" data-i18n="ctx.catDelete">删除分类</button>
   </div>
 
   <div class="ctx-menu hidden" id="asset-ctx-menu" role="menu" data-i18n-aria="ctx.menuAria" aria-label="资源菜单">
+    <button type="button" class="ctx-item accent" data-ctx="gen-one" data-i18n="ctx.genOne">生成此资源</button>
+    <button type="button" class="ctx-item" data-ctx="gen-one-export" data-i18n="ctx.genOneExport">生成并导出</button>
+    <button type="button" class="ctx-item" data-ctx="export-one" data-i18n="ctx.exportOne">导出到游戏引擎</button>
+    <div class="ctx-sep" role="separator"></div>
     <button type="button" class="ctx-item" data-ctx="rename" data-i18n="ctx.rename">重命名…</button>
     <div class="ctx-sep" role="separator"></div>
     <button type="button" class="ctx-item" data-ctx="postprocess" data-i18n="ctx.postprocess">后处理…</button>

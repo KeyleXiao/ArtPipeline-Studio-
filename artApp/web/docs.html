@@ -3,20 +3,64 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="KEYLE· ArtPipeline Studio 使用文档 — 安装、Checkpoint、流水线、AI 助手与后处理" />
   <title>ArtPipeline Studio Docs</title>
   <link rel="icon" href="/assets/app_icon.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/app.css" />
+  <link rel="stylesheet" href="/css/docs.css" />
 </head>
 <body class="docs-page">
-  <header class="docs-head">
-    <a class="btn sm ghost" href="/" data-i18n="docs.back">← 返回工具</a>
-    <h1 data-i18n="docs.title">ArtPipeline Studio 使用文档</h1>
-    <div class="lang-switch" role="group">
-      <button type="button" class="lang-btn" data-lang="zh-CN" data-i18n="lang.zh">中文</button>
-      <button type="button" class="lang-btn" data-lang="en-US" data-i18n="lang.en">EN</button>
+  <div class="docs-progress" id="docs-progress" aria-hidden="true"></div>
+  <div class="docs-bg-mesh" aria-hidden="true"></div>
+  <div class="docs-bg-grid" aria-hidden="true"></div>
+  <div class="docs-bg-orb docs-bg-orb-a" aria-hidden="true"></div>
+  <div class="docs-bg-orb docs-bg-orb-b" aria-hidden="true"></div>
+
+  <header class="docs-header">
+    <a class="docs-brand" href="/">
+      <img src="/assets/app_icon.png" width="32" height="32" alt="" />
+      <span>KEYLE· Studio</span>
+    </a>
+    <h1 class="docs-header-title" data-i18n="docs.title">ArtPipeline Studio 使用文档</h1>
+    <div class="docs-header-actions">
+      <div class="docs-lang lang-switch" role="group" data-i18n-aria="docs.langAria">
+        <button type="button" class="lang-btn" data-lang="zh-CN" data-i18n="lang.zh">中文</button>
+        <button type="button" class="lang-btn" data-lang="en-US" data-i18n="lang.en">EN</button>
+      </div>
     </div>
   </header>
-  <article class="docs-body markdown-body" id="docs-content">Loading…</article>
+
+  <div class="docs-shell">
+    <aside class="docs-aside">
+      <div class="docs-aside-card">
+        <p class="docs-aside-label" data-i18n="docs.nav">导航</p>
+        <a class="btn sm ghost docs-back" href="/" data-i18n="docs.back">← 返回工具</a>
+      </div>
+      <nav class="docs-aside-card" aria-label="Table of contents">
+        <p class="docs-aside-label" data-i18n="docs.toc">目录</p>
+        <p class="docs-aside-hint" data-i18n="docs.tocHint">点击跳转到章节</p>
+        <ul class="docs-toc" id="docs-toc"></ul>
+      </nav>
+    </aside>
+
+    <div class="docs-article-wrap">
+      <article class="docs-article markdown-body" id="docs-content">
+        <div class="docs-loading">
+          <span class="docs-loading-spinner" aria-hidden="true"></span>
+          <span data-i18n="docs.loading">加载文档…</span>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  <footer class="docs-footer">
+    <p class="docs-footer-brand">KEYLE · ArtPipeline Studio</p>
+    <p data-i18n="docs.footer">Web · 美术流水线</p>
+  </footer>
+
   <script type="module" src="/js/docs.js"></script>
 </body>
 </html>

@@ -147,7 +147,7 @@
       "lora_strength": 0.7,
       "positive_common": "(transparent background:1.4), (alpha channel:1.25), isolated subject, clean cutout sticker, simple flat background, single color backdrop, no scenery, floating object",
       "negative_common": "(solid background:1.35), (opaque background:1.25), complex background, detailed background, white background, black background, grey background, gradient background, colored backdrop, scenery, environment, floor, ground, wall, room, studio backdrop, vignette, cast shadow on ground",
-      "alpha_matte": "border"
+      "alpha_matte": "default"
     }
   ],
   "assets": [
@@ -503,7 +503,7 @@
             "transform": {
               "offset_x": 0.0,
               "offset_y": 0.0,
-              "scale": 1.2526132404181185,
+              "scale": 1.03,
               "anchor": "center"
             },
             "source": "$asset",
@@ -991,6 +991,27 @@
       "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, vertical mobile game splash poster, demon roulette casino theme, dark purple and gold atmosphere, revolver and roulette wheel motifs, dramatic lighting, ornate gothic frame edges, title safe center area, single symbol centered, game ui icon, bold readable silhouette",
       "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, human, face, character, person, full scene, landscape, filled panel, inner illustration",
       "remove_bg_mode": "keep"
+    },
+    {
+      "id": "role_dealer1",
+      "filename": "role_dealer1.png",
+      "category": "avatar",
+      "width": 512,
+      "height": 512,
+      "subject": "暗黑女护士 · 紫色系棋牌恶魔轮盘",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, 1girl, female nurse, dark fantasy, purple color theme, demon roulette theme, playing cards motif, holding a card, sinister smile, elegant uniform, ornate details, intricate patterns, engraved gold trim, square image, 1:1 aspect ratio, from waist up, cowboy shot, upper body, complete face visible, detailed eyes, both arms visible, both hands visible, shoulders fully visible, chest visible, subject fills 90 percent of frame, large character, zoomed in, centered, looking at viewer, detailed shading, painterly, game character icon",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, head only, face only, missing face, empty hood, floating head, missing arms, no arms, missing hands, incomplete body, tiny character, wide shot, full body, chibi, (solid background:1.35), (opaque background:1.25), complex background, detailed background, white background, black background, grey background, gradient background, colored backdrop, scenery, environment, floor, ground, wall, room, studio backdrop, vignette, cast shadow on ground",
+      "positive_g": "",
+      "positive_l": "",
+      "workflow": "workflows/assets/role_dealer1.json",
+      "enabled": false,
+      "gen_scale": 2.0,
+      "seed": "",
+      "remove_bg_mode": "inherit",
+      "gen_mode": "txt2img",
+      "ref_image": "",
+      "ref_image_use_source": false,
+      "img2img_denoise": 0.65
     }
   ]
 }

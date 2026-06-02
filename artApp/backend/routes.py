@@ -341,29 +341,29 @@ def job_cancel() -> dict[str, str]:
 
 
 @router.post("/generate")
-def generate_assets(body: GenerateBody) -> dict[str, str]:
+def generate_assets(body: GenerateBody) -> dict[str, Any]:
     if not body.asset_ids:
         raise HTTPException(400, "asset_ids 为空")
     if pipeline_runner.is_busy():
         raise HTTPException(409, "任务进行中")
     try:
-        pipeline_runner.generate_batch(body.asset_ids, export_after=body.export_after)
+        run_id = pipeline_runner.generate_batch(body.asset_ids, export_after=body.export_after)
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return {"status": "started"}
+    return {"status": "started", "run_id": run_id}
 
 
 @router.post("/export")
-def export_assets(body: GenerateBody) -> dict[str, str]:
+def export_assets(body: GenerateBody) -> dict[str, Any]:
     if not body.asset_ids:
         raise HTTPException(400, "asset_ids 为空")
     if pipeline_runner.is_busy():
         raise HTTPException(409, "任务进行中")
     try:
-        pipeline_runner.export_batch(body.asset_ids)
+        run_id = pipeline_runner.export_batch(body.asset_ids)
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return {"status": "started"}
+    return {"status": "started", "run_id": run_id}
 
 
 @router.post("/workflows/init")
@@ -1684,7 +1684,11 @@ def ai_chat(body: AiChatBody) -> dict[str, Any]:
             config.ensure_category_dirs(target_cat)
     if asset_dirty or cat_dirty:
         reload_config_manager()
-    return {"message": message, "applied": applied, "updates": updates}
+        log_bus.log(
+            f"AI 已自动保存资源 {asset.id}（{', '.join(applied)}）",
+            kind="操作",
+        )
+    return {"message": message, "applied": applied, "updates": updates, "saved": bool(applied)}
 
 
 # ── System open ─────────────────────────────────────────────

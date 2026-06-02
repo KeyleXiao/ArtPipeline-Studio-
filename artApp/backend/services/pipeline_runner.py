@@ -15,6 +15,7 @@ from backend.services.log_bus import log_bus
 class JobState:
     busy: bool = False
     kind: str = ""
+    run_id: int = 0
     progress: dict[str, Any] = field(default_factory=dict)
     cancel_requested: bool = False
 
@@ -33,6 +34,7 @@ class PipelineRunner:
             return {
                 "busy": self.state.busy,
                 "kind": self.state.kind,
+                "run_id": self.state.run_id,
                 "progress": dict(self.state.progress),
             }
 
@@ -57,12 +59,24 @@ class PipelineRunner:
 
     def _set_progress(self, info: dict[str, Any]) -> None:
         with self._lock:
-            self.state.progress = info
+            if info.get("kind") == "batch":
+                self.state.progress = dict(info)
+                return
+            prev = dict(self.state.progress)
+            merged = dict(info)
+            for key in ("index", "total", "filename"):
+                if key in prev and key not in merged:
+                    merged[key] = prev[key]
+            self.state.progress = merged
 
-    def run_async(self, kind: str, fn: Callable[[], None]) -> None:
+    def run_async(self, kind: str, fn: Callable[[], None]) -> int:
         if self.is_busy():
             raise RuntimeError("已有任务进行中")
+        with self._lock:
+            self.state.run_id += 1
+            run_id = self.state.run_id
         self._set_busy(True, kind)
+        self._set_progress({"kind": "status", "message": "任务启动中…"})
 
         def worker() -> None:
             try:
@@ -71,27 +85,43 @@ class PipelineRunner:
                 self._set_busy(False)
 
         threading.Thread(target=worker, daemon=True, name=f"artapp-{kind}").start()
+        return run_id
 
-    def generate_batch(self, asset_ids: list[str], *, export_after: bool = False) -> None:
+    def generate_batch(self, asset_ids: list[str], *, export_after: bool = False) -> int:
         from config_manager import Asset
         from pipeline_core import PipelineCore
 
         config = get_config_manager()
-        pipeline = PipelineCore(config)
 
         def task() -> None:
-            assets = [a for aid in asset_ids if (a := config.asset_by_id(aid))]
-            enabled = [a for a in assets if a.enabled]
-            if not enabled:
-                log_bus.log("没有可生成的资源（可能已禁用）", kind="生成")
+            pipeline = PipelineCore(config)
+            ok, comfy_msg = pipeline.test_comfyui()
+            if not ok:
+                log_bus.log(f"ComfyUI 不可用，已取消生成: {comfy_msg}", kind="生成")
+                self._set_progress({"kind": "status", "message": comfy_msg})
                 return
-            total = len(enabled)
+            assets = [a for aid in asset_ids if (a := config.asset_by_id(aid))]
+            if not assets:
+                missing = [aid for aid in asset_ids if not config.asset_by_id(aid)]
+                if missing:
+                    log_bus.log(f"未找到资源: {', '.join(missing)}", kind="生成")
+                else:
+                    log_bus.log("没有可生成的资源", kind="生成")
+                return
+            disabled = [a for a in assets if not a.enabled]
+            if disabled:
+                log_bus.log(
+                    f"以下资源未勾选「启用」，仍按指定生成: "
+                    f"{', '.join(a.filename for a in disabled)}",
+                    kind="生成",
+                )
+            total = len(assets)
             log_bus.log(f"── 开始 {'生成并导出' if export_after else '生成'} {total} 张 ──", kind="生成")
 
             def progress_cb(info: dict) -> None:
                 self._set_progress(info)
 
-            for i, asset in enumerate(enabled, start=1):
+            for i, asset in enumerate(assets, start=1):
                 if pipeline.cancel_event.is_set():
                     log_bus.log("── 已取消 ──", kind="生成")
                     break
@@ -116,22 +146,23 @@ class PipelineRunner:
                     log_bus.log(f"FAIL {asset.filename}: {exc}", kind="生成")
             log_bus.log("── 任务结束 ──", kind="生成")
 
-        self.run_async("generate", task)
+        return self.run_async("generate", task)
 
-    def export_batch(self, asset_ids: list[str]) -> None:
+    def export_batch(self, asset_ids: list[str]) -> int:
         from pipeline_core import PipelineCore
 
         config = get_config_manager()
-        pipeline = PipelineCore(config)
 
         def task() -> None:
+            pipeline = PipelineCore(config)
             assets = [a for aid in asset_ids if (a := config.asset_by_id(aid))]
             if not assets:
+                log_bus.log("未找到指定资源", kind="生成")
                 return
             ok, fail = pipeline.export_many(assets, log=lambda m: log_bus.log(m, kind="生成"))
             log_bus.log(f"导出完成: 成功 {ok}，失败 {fail}", kind="生成")
 
-        self.run_async("export", task)
+        return self.run_async("export", task)
 
 
 pipeline_runner = PipelineRunner()

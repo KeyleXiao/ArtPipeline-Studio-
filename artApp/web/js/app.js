@@ -36,6 +36,8 @@ const state = {
   logFilter: "全部",
   logEs: null,
   jobTimer: null,
+  jobRunId: null,
+  jobTrack: { active: false, sawBusy: false, postOk: false },
   paths: null,
   previewReq: 0,
   previewBlobUrl: null,
@@ -147,6 +149,49 @@ function selectedIds() {
 
 function categoryAssetIds() {
   return state.assets.filter((a) => a.enabled !== false).map((a) => a.id);
+}
+
+async function enabledAssetIdsForCategory(catId) {
+  if (catId === state.categoryId) return categoryAssetIds();
+  const data = await API.get(`/api/assets?category=${encodeURIComponent(catId)}`);
+  return (data.assets || []).filter((a) => a.enabled !== false).map((a) => a.id);
+}
+
+async function runGenerate(assetIds, { exportAfter = false, emptyToastKey = "toast.noCategoryAssets" } = {}) {
+  if (!assetIds?.length) {
+    toast(t(emptyToastKey));
+    return;
+  }
+  if (!(await ensureComfyOnline())) return;
+  prepareJobUi("generate", assetIds);
+  try {
+    const res = await API.post("/api/generate", { asset_ids: assetIds, export_after: exportAfter });
+    state.jobRunId = res.run_id ?? null;
+    state.jobTrack.postOk = true;
+    startJobPoll();
+  } catch (err) {
+    resetJobTracking();
+    clearJobUi();
+    toast(err.message);
+  }
+}
+
+async function runExport(assetIds, { emptyToastKey = "toast.noCategoryAssets" } = {}) {
+  if (!assetIds?.length) {
+    toast(t(emptyToastKey));
+    return;
+  }
+  prepareJobUi("export", assetIds);
+  try {
+    const res = await API.post("/api/export", { asset_ids: assetIds });
+    state.jobRunId = res.run_id ?? null;
+    state.jobTrack.postOk = true;
+    startJobPoll();
+  } catch (err) {
+    resetJobTracking();
+    clearJobUi();
+    toast(err.message);
+  }
 }
 
 // ── 渲染 ─────────────────────────────────────────────
@@ -1193,6 +1238,7 @@ const jobProg = {
   filename: "",
   message: "",
   lastApiKind: "",
+  phase: "",
   cancelling: false,
   visible: false,
 };
@@ -1203,25 +1249,134 @@ function resetJobProg(kind = "") {
   jobProg.stepPct = 0;
   jobProg.filename = "";
   jobProg.message = "";
+  jobProg.phase = "";
   jobProg.lastApiKind = kind;
   jobProg.cancelling = false;
+}
+
+function resetJobTracking() {
+  state.jobRunId = null;
+  state.jobTrack = { active: false, sawBusy: false, postOk: false };
+}
+
+function stopJobPoll() {
+  if (state.jobTimer) {
+    clearInterval(state.jobTimer);
+    state.jobTimer = null;
+  }
+}
+
+function prepareJobUi(kind, assetIds) {
+  stopJobPoll();
+  resetJobTracking();
+  state.jobTrack.active = true;
+  resetJobProg(kind);
+  jobProg.batchTotal = Math.max(assetIds.length, 1);
+  jobProg.batchIdx = 1;
+  jobProg.message = t("job.preparing");
+  const first = state.assets.find((a) => a.id === assetIds[0]);
+  jobProg.filename = first?.filename || "…";
+  showJobFloat();
+  const pill = $("#job-pill");
+  if (pill) {
+    pill.textContent = kind === "export" ? t("job.exporting") : t("job.busy");
+    pill.classList.add("busy");
+    pill.dataset.busy = "1";
+  }
+}
+
+function clearJobUi() {
+  stopJobPoll();
+  resetJobTracking();
+  hideJobFloat();
+  const pill = $("#job-pill");
+  if (pill) {
+    pill.textContent = t("job.ready");
+    pill.classList.remove("busy");
+    delete pill.dataset.busy;
+  }
+  jobProg.cancelling = false;
+}
+
+function finishJobUi({ quickFail = false } = {}) {
+  const wasGenerate = jobProg.lastApiKind === "generate";
+  stopJobPoll();
+  resetJobTracking();
+  hideJobFloat();
+  const pill = $("#job-pill");
+  if (pill) {
+    pill.textContent = t("job.ready");
+    pill.classList.remove("busy");
+    delete pill.dataset.busy;
+  }
+  jobProg.cancelling = false;
+  void notifyJobFinish({ quickFail, wasGenerate });
+}
+
+async function notifyJobFinish({ quickFail, wasGenerate }) {
+  if (!wasGenerate && !quickFail) return;
+  try {
+    const data = await API.get("/api/logs?tab=生成&limit=40");
+    const entries = data.entries || [];
+    const failLine = [...entries].reverse().find((e) => {
+      const m = logEntryText(e);
+      return (
+        /^FAIL\b/i.test(m) ||
+        m.includes("未配置") ||
+        m.includes("没有可生成") ||
+        m.includes("不存在") ||
+        m.includes("ComfyUI")
+      );
+    });
+    if (failLine) {
+      toast(logEntryText(failLine), { variant: "error" });
+      return;
+    }
+  } catch {
+    /* ignore */
+  }
+  if (quickFail) {
+    toast(t("toast.jobEndedCheckLogs"), { variant: "error" });
+  }
 }
 
 function ingestJobProgress(p) {
   if (!p?.kind) return;
   const kind = p.kind;
-  if (kind === "batch") {
-    jobProg.batchIdx = parseInt(p.index, 10) || 1;
+  jobProg.phase = kind;
+  if (p.index != null) {
+    jobProg.batchIdx = parseInt(p.index, 10) || jobProg.batchIdx || 1;
+  }
+  if (p.total != null) {
     jobProg.batchTotal = Math.max(parseInt(p.total, 10) || 1, 1);
+  }
+  if (p.filename) jobProg.filename = p.filename;
+  if (kind === "batch") {
     jobProg.stepPct = 0;
-    if (p.filename) jobProg.filename = p.filename;
   } else if (kind === "progress") {
     const val = parseInt(p.value, 10) || 0;
     const mx = Math.max(parseInt(p.max, 10) || 1, 1);
     jobProg.stepPct = Math.min(100, Math.floor((val / mx) * 100));
     if (p.message) jobProg.message = p.message;
-  } else if (["queue", "running", "status", "executing"].includes(kind) && p.message) {
+  } else if (kind === "queue") {
+    if (p.message) jobProg.message = p.message;
+    jobProg.stepPct = Math.max(jobProg.stepPct, 8);
+  } else if (kind === "running") {
+    if (p.message) jobProg.message = p.message;
+    const elapsed = parseInt(p.elapsed, 10) || 0;
+    if (elapsed > 0) {
+      jobProg.stepPct = Math.max(
+        jobProg.stepPct,
+        Math.min(92, Math.floor((elapsed / 90) * 88) + 4),
+      );
+    } else {
+      jobProg.stepPct = Math.max(jobProg.stepPct, 12);
+    }
+  } else if (["status", "executing"].includes(kind) && p.message) {
     jobProg.message = p.message;
+    if (kind === "executing") {
+      jobProg.stepPct = Math.max(jobProg.stepPct, 20);
+    }
   }
 }
 
@@ -1254,11 +1409,21 @@ function renderJobFloat() {
   }
 
   const pct = overallJobPct();
-  const indeterminate = isExport || pct === null;
+  const waiting =
+    jobProg.stepPct < 100 &&
+    ["queue", "running", "status", "executing"].includes(jobProg.phase);
+  const indeterminate = isExport || pct === null || (pct === 0 && waiting && !jobProg.message);
   root.classList.toggle("is-indeterminate", indeterminate);
 
-  if (pctEl) pctEl.textContent = indeterminate ? "…" : `${pct}%`;
-  if (fill) fill.style.width = indeterminate ? "" : `${pct}%`;
+  if (pctEl) {
+    if (indeterminate) pctEl.textContent = "…";
+    else if (waiting && pct === 0 && jobProg.message) pctEl.textContent = "…";
+    else pctEl.textContent = `${pct}%`;
+  }
+  if (fill) {
+    if (indeterminate) fill.style.width = "";
+    else fill.style.width = `${pct}%`;
+  }
   if (batch) {
     batch.textContent =
       jobProg.batchTotal > 1 && jobProg.batchIdx ? `${jobProg.batchIdx}/${jobProg.batchTotal}` : "";
@@ -1276,6 +1441,7 @@ function showJobFloat() {
   const root = $("#job-float");
   if (!root) return;
   root.classList.remove("hidden");
+  void root.offsetWidth;
   requestAnimationFrame(() => root.classList.add("is-visible"));
   jobProg.visible = true;
   renderJobFloat();
@@ -1296,24 +1462,52 @@ function hideJobFloat() {
 
 function updateJobFromApi(j) {
   const pill = $("#job-pill");
+
+  if (state.jobTrack.active && !state.jobTrack.postOk && !j.busy) {
+    return;
+  }
+  if (
+    state.jobRunId != null &&
+    j.run_id != null &&
+    j.run_id !== state.jobRunId &&
+    !j.busy
+  ) {
+    return;
+  }
+
   if (j.busy) {
+    if (!state.jobTrack.active) {
+      state.jobTrack = { active: true, sawBusy: true, postOk: true };
+      if (j.run_id != null) state.jobRunId = j.run_id;
+    } else {
+      state.jobTrack.sawBusy = true;
+    }
     if (j.kind) jobProg.lastApiKind = j.kind;
     ingestJobProgress(j.progress || {});
     showJobFloat();
+    renderJobFloat();
     if (pill) {
       pill.textContent = j.kind === "export" ? t("job.exporting") : t("job.busy");
       pill.classList.add("busy");
       pill.dataset.busy = "1";
     }
-  } else {
-    if (pill) {
-      pill.textContent = t("job.ready");
-      pill.classList.remove("busy");
-      delete pill.dataset.busy;
-    }
-    hideJobFloat();
-    jobProg.cancelling = false;
+    return;
   }
+
+  if (!state.jobTrack.active && !state.jobTrack.sawBusy) {
+    return;
+  }
+  if (state.jobRunId != null && j.run_id != null && j.run_id !== state.jobRunId) {
+    return;
+  }
+
+  const quickFail = state.jobTrack.active && state.jobTrack.postOk && !state.jobTrack.sawBusy;
+  finishJobUi({ quickFail });
+  if (state.assetId) {
+    loadPreview();
+    loadPreviewInfo(state.assetId);
+  }
+  scanStatus();
 }
 
 function clampFloatPosition(x, y, el) {
@@ -1439,72 +1633,59 @@ function bindJobFloat() {
 
 async function refreshComfy() {
   const pill = $("#comfy-pill");
-  if (!pill) return;
+  if (!pill) return false;
   pill.classList.add("is-checking");
   try {
     const data = await API.get("/api/comfyui/status");
     pill.textContent = data.ok ? t("comfy.online") : t("comfy.offline");
     pill.classList.toggle("ok", data.ok);
     pill.title = data.message || "";
+    return !!data.ok;
   } catch {
     pill.textContent = "ComfyUI ?";
     pill.classList.remove("ok");
+    pill.title = "";
+    return false;
   } finally {
     pill.classList.remove("is-checking");
   }
 }
 
+async function ensureComfyOnline() {
+  const ok = await refreshComfy();
+  if (ok) return true;
+  const pill = $("#comfy-pill");
+  toast(pill?.title || t("comfy.offline"), { variant: "error" });
+  return false;
+}
+
 function startJobPoll() {
-  if (state.jobTimer) return;
-  state.jobTimer = setInterval(async () => {
+  stopJobPoll();
+  const tick = async () => {
     try {
       const j = await API.get("/api/jobs/status");
       updateJobFromApi(j);
-      if (!j.busy) {
-        clearInterval(state.jobTimer);
-        state.jobTimer = null;
-        if (state.assetId) {
-          loadPreview();
-          loadPreviewInfo(state.assetId);
-        }
-        scanStatus();
-      }
     } catch {
       /* ignore */
     }
-  }, 800);
+  };
+  tick();
+  state.jobTimer = setInterval(tick, 500);
 }
 
 async function startGenerate(exportAfter = false, onlySelected = false) {
   const ids = onlySelected ? selectedIds() : categoryAssetIds();
-  if (!ids.length) {
-    toast(onlySelected ? t("toast.selectAsset") : t("toast.noCategoryAssets"));
-    return;
-  }
-  try {
-    await API.post("/api/generate", { asset_ids: ids, export_after: exportAfter });
-    resetJobProg("generate");
-    showJobFloat();
-    startJobPoll();
-  } catch (err) {
-    toast(err.message);
-  }
+  await runGenerate(ids, {
+    exportAfter,
+    emptyToastKey: onlySelected ? "toast.selectAsset" : "toast.noCategoryAssets",
+  });
 }
 
 async function startExport(onlySelected = false) {
   const ids = onlySelected ? selectedIds() : categoryAssetIds();
-  if (!ids.length) {
-    toast(onlySelected ? t("toast.selectAsset") : t("toast.noCategoryAssets"));
-    return;
-  }
-  try {
-    await API.post("/api/export", { asset_ids: ids });
-    resetJobProg("export");
-    showJobFloat();
-    startJobPoll();
-  } catch (err) {
-    toast(err.message);
-  }
+  await runExport(ids, {
+    emptyToastKey: onlySelected ? "toast.selectAsset" : "toast.noCategoryAssets",
+  });
 }
 
 // ── 日志 SSE ─────────────────────────────────────────────
@@ -1661,13 +1842,24 @@ function bindLogFabDrag() {
   });
 }
 
+function logEntryTime(entry) {
+  return entry?.ts ?? entry?.time ?? "—";
+}
+
+function logEntryText(entry) {
+  return entry?.msg ?? entry?.message ?? "";
+}
+
+function formatLogLine(entry) {
+  return `[${logEntryTime(entry)}] [${entry?.kind ?? "?"}] ${logEntryText(entry)}`;
+}
+
 function appendLog(entry) {
   const tab = state.logFilter;
   if (tab !== "全部" && entry.kind !== tab) return;
   const pre = $("#log-body");
   if (!pre) return;
-  const line = `[${entry.time}] [${entry.kind}] ${entry.message}\n`;
-  pre.textContent += line;
+  pre.textContent += `${formatLogLine(entry)}\n`;
   if (pre.textContent.length > 120000) {
     pre.textContent = pre.textContent.slice(-80000);
   }
@@ -1696,9 +1888,7 @@ async function reloadLogsHistory() {
   const data = await API.get(`/api/logs?tab=${encodeURIComponent(state.logFilter)}`);
   const pre = $("#log-body");
   if (!pre) return;
-  pre.textContent = (data.entries || [])
-    .map((e) => `[${e.time}] [${e.kind}] ${e.message}`)
-    .join("\n");
+  pre.textContent = (data.entries || []).map(formatLogLine).join("\n");
   pre.scrollTop = pre.scrollHeight;
 }
 
@@ -1843,6 +2033,53 @@ async function saveSettings(e) {
   });
 }
 
+async function refreshUiAfterAi(applied) {
+  if (!applied?.length) return;
+  state.assetFull = null;
+  const categoryChanged = applied.includes("category");
+  const catSettingsChanged = applied.some((k) => k.startsWith("cat."));
+  const basicFields = new Set([
+    "filename",
+    "category",
+    "width",
+    "height",
+    "seed",
+    "subject",
+    "enabled",
+    "remove_bg_mode",
+    "checkpoint",
+  ]);
+  const promptFields = new Set([
+    "positive",
+    "negative",
+    "positive_g",
+    "positive_l",
+    "gen_mode",
+    "ref_image",
+    "img2img_denoise",
+    "workflow",
+  ]);
+
+  if (categoryChanged) {
+    const fresh = await API.get(`/api/assets/${state.assetId}`);
+    await bootstrap(false);
+    await selectCategory(fresh.category);
+    await selectAsset(state.assetId);
+  } else {
+    if (applied.some((k) => basicFields.has(k))) await loadBasicForm();
+    if (applied.some((k) => promptFields.has(k))) await loadPromptTab();
+    if (catSettingsChanged) {
+      const fresh = await API.get(`/api/assets/${state.assetId}`);
+      if (state.categoryId === fresh.category) await loadCategoryForm();
+    }
+    if (applied.includes("filename")) await loadAssetList();
+    else if (applied.some((k) => basicFields.has(k))) await loadAssetList();
+  }
+  await loadPreview();
+  await scanStatus();
+  toast(t("toast.aiAutoSaved", { fields: applied.join(", ") }));
+}
+
 async function sendAi() {
   if (!state.assetId) {
     toast(t("toast.selectAsset"));
@@ -1861,27 +2098,7 @@ async function sendAi() {
     });
     await refreshAiMessages();
     if (data.applied?.length) {
-      toast(t("toast.aiUpdated", { fields: data.applied.join(", ") }));
-      state.assetFull = null;
-      const categoryChanged = data.applied.includes("category");
-      const catSettingsChanged = data.applied.some((k) => k.startsWith("cat."));
-      if (categoryChanged) {
-        const fresh = await API.get(`/api/assets/${state.assetId}`);
-        await bootstrap(false);
-        await selectCategory(fresh.category);
-        await selectAsset(state.assetId);
-      } else {
-        await loadBasicForm();
-        await loadPromptTab();
-        if (catSettingsChanged) {
-          const fresh = await API.get(`/api/assets/${state.assetId}`);
-          if (state.categoryId === fresh.category) await loadCategoryForm();
-        }
-        if (data.applied.some((k) => ["filename", "width", "height", "subject"].includes(k))) {
-          await loadAssetList();
-          await loadPreview();
-        }
-      }
+      await refreshUiAfterAi(data.applied);
     }
   } catch (err) {
     toast(err.message);
@@ -2203,7 +2420,7 @@ function bindAssetDragToCategory() {
 }
 
 function closeNavMenus() {
-  closeAllFloatingMenus([".nav-dropdown", "#asset-ctx-menu", "#cat-ctx-menu"]);
+  closeAllFloatingMenus(["#asset-ctx-menu", "#cat-ctx-menu"]);
 }
 
 /** 现代化确认对话框；返回 true 表示用户确认 */
@@ -2386,7 +2603,13 @@ function bindCategoryContextMenu() {
     const id = catCtxId;
     hideCatCtxMenu();
     const act = btn.dataset.ctx;
-    if (act === "rename") await renameCategoryDialog(id);
+    if (act === "gen-category") {
+      await runGenerate(await enabledAssetIdsForCategory(id));
+    } else if (act === "gen-category-export") {
+      await runGenerate(await enabledAssetIdsForCategory(id), { exportAfter: true });
+    } else if (act === "export-category") {
+      await runExport(await enabledAssetIdsForCategory(id));
+    } else if (act === "rename") await renameCategoryDialog(id);
     else if (act === "delete") await deleteCategory(id);
   });
 
@@ -2450,7 +2673,16 @@ function bindAssetContextMenu() {
     const id = assetCtxId;
     hideAssetCtxMenu();
     const act = btn.dataset.ctx;
-    if (act === "rename") await renameAssetDialog(id);
+    if (act === "gen-one") {
+      if (id !== state.assetId) await selectAsset(id);
+      await runGenerate([id], { emptyToastKey: "toast.selectAsset" });
+    } else if (act === "gen-one-export") {
+      if (id !== state.assetId) await selectAsset(id);
+      await runGenerate([id], { exportAfter: true, emptyToastKey: "toast.selectAsset" });
+    } else if (act === "export-one") {
+      if (id !== state.assetId) await selectAsset(id);
+      await runExport([id], { emptyToastKey: "toast.selectAsset" });
+    } else if (act === "rename") await renameAssetDialog(id);
     else if (act === "postprocess") openPostprocess(id);
     else if (act === "open-source") await openAssetFile(id, "source");
     else if (act === "open-inbox") await openAssetFile(id, "inbox");
@@ -2693,58 +2925,12 @@ function bindAssetPanelResize() {
   });
 }
 
-function positionNavDropdown(trigger, menu) {
-  const pad = 8;
-  const gap = 6;
-  const rect = trigger.getBoundingClientRect();
-  menu.style.left = "0px";
-  menu.style.top = "0px";
-  const menuRect = menu.getBoundingClientRect();
-  let left = rect.left;
-  let top = rect.bottom + gap;
-  if (left + menuRect.width > window.innerWidth - pad) {
-    left = window.innerWidth - menuRect.width - pad;
-  }
-  if (top + menuRect.height > window.innerHeight - pad) {
-    top = rect.top - menuRect.height - gap;
-  }
-  menu.style.left = `${Math.max(pad, left)}px`;
-  menu.style.top = `${Math.max(pad, top)}px`;
-}
-
-function bindNavMenus() {
-  $$(".nav-group").forEach((group) => {
-    const trigger = group.querySelector(".nav-trigger");
-    const menu = group.querySelector(".nav-dropdown");
-    if (!trigger || !menu) return;
-    trigger.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const willOpen = menu.classList.contains("hidden");
-      closeNavMenus();
-      hideAssetCtxMenu();
-      if (willOpen) {
-        openFloatingMenu(menu, () => positionNavDropdown(trigger, menu));
-        trigger.setAttribute("aria-expanded", "true");
-      }
-    });
-  });
-
-  window.addEventListener("resize", () => {
-    const open = $(".nav-dropdown.fx-open");
-    if (!open) return;
-    const group = open.closest(".nav-group");
-    const trigger = group?.querySelector(".nav-trigger");
-    if (trigger) positionNavDropdown(trigger, open);
-  });
-}
-
 function bindUi() {
   bindRipple(document.getElementById("app"));
   bindAssetPanelResize();
   bindAssetContextMenu();
   bindCategoryContextMenu();
   bindAssetDragToCategory();
-  bindNavMenus();
   bindJobFloat();
   bindLogFabDrag();
   bindPreviewViewport();
@@ -2836,37 +3022,6 @@ function bindUi() {
     closeNavMenus();
     const act = btn.dataset.action;
     switch (act) {
-      case "gen-selected":
-        await startGenerate(false, true);
-        break;
-      case "gen-category":
-        await startGenerate(false, false);
-        break;
-      case "gen-export":
-        await startGenerate(true, true);
-        break;
-      case "export":
-        await startExport(true);
-        break;
-      case "export-category":
-        await startExport(false);
-        break;
-      case "save-config":
-        await withBtnBusy(btn, async () => {
-          await API.post("/api/config/save");
-          toast(t("toast.configSaved"));
-        }).catch((err) => {
-          if (err) toast(err.message);
-        });
-        break;
-      case "reload-config":
-        await withBtnBusy(btn, async () => {
-          await API.post("/api/config/reload");
-          await bootstrap(false);
-        }).catch((err) => {
-          if (err) toast(err.message);
-        });
-        break;
       case "scan-status":
         await withBtnBusy(btn, scanStatus);
         break;
@@ -3000,6 +3155,8 @@ async function bootstrap(pickFirst = true) {
     try {
       const j = await API.get("/api/jobs/status");
       if (j.busy) {
+        state.jobRunId = j.run_id ?? null;
+        state.jobTrack = { active: true, sawBusy: true, postOk: true };
         resetJobProg(j.kind || "");
         updateJobFromApi(j);
         startJobPoll();
