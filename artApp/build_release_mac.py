@@ -35,8 +35,6 @@ def _require_macos() -> None:
 
 
 def main() -> None:
-    _require_macos()
-
     parser = argparse.ArgumentParser(description="Build ArtPipeline Studio for macOS")
     parser.add_argument("--no-clean", action="store_true", help="保留上次 build/dist")
     parser.add_argument(
@@ -61,6 +59,7 @@ def main() -> None:
         print(f"\n✓ 构建环境就绪: {BUILD_VENV}")
         return
 
+    _require_macos()
     if args.portable and args.portable_win:
         raise SystemExit("--portable 与 --portable-win 不能同时使用")
 

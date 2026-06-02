@@ -193,7 +193,7 @@ your-art-workspace/
 - macOS：`~/Library/Application Support/ArtPipeline Studio/`
 - Windows：`%LOCALAPPDATA%\ArtPipeline Studio\`
 
-**在 Mac 上打 Windows 包**：PyInstaller 无法交叉编译，可用 GitHub Actions（`.github/workflows/build-windows.yml`）或在 Windows / 虚拟机中执行 `build_release_win.py`。
+**在 Mac 上打 Windows 包**：PyInstaller 无法交叉编译，可用 GitHub Actions（`.github/workflows/build-release.yml`，并行构建 Windows + macOS）或在 Windows / 虚拟机中执行 `build_release_win.py`。
 
 ---
 

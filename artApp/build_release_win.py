@@ -34,8 +34,6 @@ def _require_windows() -> None:
 
 
 def main() -> None:
-    _require_windows()
-
     parser = argparse.ArgumentParser(description="Build ArtPipeline Studio for Windows")
     parser.add_argument("--no-clean", action="store_true", help="保留上次 build/dist")
     parser.add_argument(
@@ -55,6 +53,7 @@ def main() -> None:
         print(f"\n✓ 构建环境就绪: {BUILD_VENV}")
         return
 
+    _require_windows()
     if args.portable:
         artifact = build_portable_win()
         print(f"\n✓ Windows 便携版: {artifact}")

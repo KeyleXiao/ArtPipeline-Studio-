@@ -49,7 +49,7 @@ PyInstaller **不能**从 macOS 交叉编译出 `.exe`，可选方案：
 |------|------|------|
 | **`--portable-win`（Mac 可跑）** | 便携文件夹 + `.bat` | 拷到 Win 后安装 Python + pip 依赖即可运行，**无独立 exe** |
 | **Windows 虚拟机 / 实体机** | 完整 `.exe` | Parallels / UTM / Boot Camp 等，在 Win 内执行 `build_release_win.py` |
-| **GitHub Actions** | 完整 `.exe` | 用 `windows-latest` _runner 自动打包（见 `.github/workflows/build-windows.yml`） |
+| **GitHub Actions** | Win `.exe` + macOS `.app` | push 到 `main` 或手动触发（见 `.github/workflows/build-release.yml`） |
 | **云 Windows** | 完整 `.exe` | Azure、AWS 等按需开 Win 实例，同上命令打包 |
 
 Mac 上立即可用（便携版）:

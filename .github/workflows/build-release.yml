@@ -1,0 +1,116 @@
+# ArtPipeline Studio · Windows / macOS 发布包 CI 构建
+# 仓库根布局: artApp/ + tools/
+
+name: Build Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "artApp/**"
+      - "tools/**"
+      - ".github/workflows/**"
+      - "ArtPipeline/artApp/**"
+      - "ArtPipeline/tools/**"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PYTHON_VERSION: "3.11"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build-${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+            venv_py: .build-venv/Scripts/python.exe
+            build_script: build_release_win.py
+            artifact_name: ArtPipeline-Studio-Windows
+            artifact_path: release/ArtPipeline Studio
+          - platform: macos
+            os: macos-latest
+            venv_py: .build-venv/bin/python
+            build_script: build_release_mac.py
+            artifact_name: ArtPipeline-Studio-macOS
+            artifact_path: release/ArtPipeline Studio.app
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve project paths
+        id: paths
+        run: |
+          set -euo pipefail
+          if [ -d artApp ] && [ -d tools ]; then
+            ARTAPP=artApp
+            TOOLS=tools
+          elif [ -d ArtPipeline/artApp ] && [ -d ArtPipeline/tools ]; then
+            ARTAPP=ArtPipeline/artApp
+            TOOLS=ArtPipeline/tools
+          else
+            echo "::error::找不到 artApp 与 tools 目录"
+            ls -la
+            exit 1
+          fi
+          echo "artapp=$ARTAPP" >> "$GITHUB_OUTPUT"
+          echo "tools=$TOOLS" >> "$GITHUB_OUTPUT"
+          echo "Resolved artApp=$ARTAPP tools=$TOOLS"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            ${{ steps.paths.outputs.artapp }}/requirements.txt
+            ${{ steps.paths.outputs.artapp }}/requirements-build.txt
+
+      - name: Verify layout
+        run: |
+          test -f "${{ steps.paths.outputs.artapp }}/run_app.py"
+          test -f "${{ steps.paths.outputs.artapp }}/${{ matrix.build_script }}"
+          test -f "${{ steps.paths.outputs.tools }}/config_manager.py"
+          echo "✓ 路径校验通过 (${{ matrix.platform }})"
+
+      - name: Create build venv
+        working-directory: ${{ steps.paths.outputs.artapp }}
+        run: |
+          set -euo pipefail
+          python -m venv .build-venv
+          "$venv_py" -m pip install -U pip wheel
+          "$venv_py" -m pip install -r requirements.txt -r requirements-build.txt
+        env:
+          venv_py: ${{ matrix.venv_py }}
+
+      - name: Build with PyInstaller
+        working-directory: ${{ steps.paths.outputs.artapp }}
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+          venv_py: ${{ matrix.venv_py }}
+        run: |
+          set -euo pipefail
+          "$venv_py" "${{ matrix.build_script }}"
+
+      - name: List release output
+        if: always()
+        run: |
+          ls -la "${{ steps.paths.outputs.artapp }}/release/" || true
+          ls -la "${{ steps.paths.outputs.artapp }}/${{ matrix.artifact_path }}" || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ steps.paths.outputs.artapp }}/${{ matrix.artifact_path }}
+          if-no-files-found: error
