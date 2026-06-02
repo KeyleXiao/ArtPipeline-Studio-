@@ -480,7 +480,8 @@ class ConfigManager:
         cat = self.category_by_id(cat_id)
         if cat and cat.checkpoint.strip():
             return cat.checkpoint.strip()
-        return ""
+        fallback = str(self.defaults.get("checkpoint", "")).strip()
+        return fallback
 
     def checkpoint_for_asset(self, asset: Asset) -> str:
         if asset.checkpoint.strip():

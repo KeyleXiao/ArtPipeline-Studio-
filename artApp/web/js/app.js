@@ -278,21 +278,33 @@ function renderAssets() {
   box.appendChild(frag);
 }
 
+function rebuildCheckpointSelect(sel, emptyLabel, preferred = "") {
+  if (!sel) return;
+  const value = (preferred || sel.value || "").trim();
+  sel.innerHTML = `<option value="">${esc(emptyLabel)}</option>`;
+  for (const ck of state.checkpoints) {
+    const o = document.createElement("option");
+    o.value = ck;
+    o.textContent = ck.split("/").pop();
+    sel.appendChild(o);
+  }
+  if (value && !state.checkpoints.includes(value)) {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = `${value.split("/").pop()} (${t("dlg.checkpointOfflineHint")})`;
+    sel.appendChild(o);
+  }
+  if (value) sel.value = value;
+}
+
 function fillCheckpointSelects() {
-  const fill = (sel, emptyLabel) => {
-    if (!sel) return;
-    const cur = sel.value;
-    sel.innerHTML = `<option value="">${esc(emptyLabel)}</option>`;
-    for (const ck of state.checkpoints) {
-      const o = document.createElement("option");
-      o.value = ck;
-      o.textContent = ck.split("/").pop();
-      sel.appendChild(o);
-    }
-    if (cur) sel.value = cur;
-  };
-  fill($("#asset-ckpt"), t("form.checkpointInherit"));
-  fill($("#cat-ckpt"), t("form.checkpointUnset"));
+  const cat = state.categories.find((c) => c.id === state.categoryId);
+  rebuildCheckpointSelect(
+    $("#asset-ckpt"),
+    t("form.checkpointInherit"),
+    state.assetFull?.checkpoint || "",
+  );
+  rebuildCheckpointSelect($("#cat-ckpt"), t("form.checkpointUnset"), cat?.checkpoint || "");
 }
 
 async function fillNewCatCheckpointSelect() {
@@ -380,7 +392,7 @@ async function loadBasicForm() {
   form.querySelectorAll('input[name="remove_bg_mode"]').forEach((r) => {
     r.checked = r.value === mode;
   });
-  if ($("#asset-ckpt")) $("#asset-ckpt").value = data.checkpoint || "";
+  rebuildCheckpointSelect($("#asset-ckpt"), t("form.checkpointInherit"), data.checkpoint || "");
 }
 
 async function loadCategoryForm() {
@@ -394,7 +406,7 @@ async function loadCategoryForm() {
   form.alpha_matte.checked = !!data.alpha_matte && data.alpha_matte !== "none";
   form.positive_common.value = data.positive_common || "";
   form.negative_common.value = data.negative_common || "";
-  if ($("#cat-ckpt")) $("#cat-ckpt").value = data.checkpoint || "";
+  rebuildCheckpointSelect($("#cat-ckpt"), t("form.checkpointUnset"), data.checkpoint || "");
 }
 
 async function loadPromptTab() {
