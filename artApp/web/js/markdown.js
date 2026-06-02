@@ -33,6 +33,7 @@ export function renderMarkdown(md) {
     escapeHtml(s)
       .replace(/`([^`]+)`/g, "<code>$1</code>")
       .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" loading="lazy" />')
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 
   for (const raw of lines) {
@@ -108,6 +109,16 @@ export function renderMarkdown(md) {
     }
 
     flushList();
+    const fig = line.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/);
+    if (fig) {
+      const alt = fig[1];
+      const src = fig[2];
+      const cap = alt ? `<figcaption>${escapeHtml(alt)}</figcaption>` : "";
+      out.push(
+        `<figure class="md-figure"><img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" loading="lazy" />${cap}</figure>`,
+      );
+      continue;
+    }
     out.push(`<p>${inline(line)}</p>`);
   }
   flushList();

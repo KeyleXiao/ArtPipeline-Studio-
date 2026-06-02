@@ -64,6 +64,7 @@ BUILD_DIR = RELEASE_DIR / "build"
 SPEC_DIR = RELEASE_DIR
 
 APP_NAME = "ArtPipeline Studio"
+MACOS_ZIP_NAME = "ArtPipeline-Studio-macOS.zip"
 ENTRY = ARTAPP_ROOT / "run_app.py"
 ICON = TOOLS_DIR / "assets" / "app_icon.png"
 if not ICON.is_file():
@@ -206,8 +207,77 @@ def pyinstaller_cmd(*, python: str, target: str) -> list[str]:
     if target == "win":
         # 避免 UPX 在部分 Windows 环境误报/杀软拦截
         cmd.insert(cmd.index("--windowed") + 1, "--noupx")
+    elif target == "mac":
+        cmd.extend(["--osx-bundle-identifier=cn.vrast.artpipeline.studio"])
 
     return cmd
+
+
+def _copytree_preserve_links(src: Path, dest: Path) -> None:
+    """复制 .app 时保留符号链接（PyInstaller 6 依赖）。"""
+    shutil.copytree(src, dest, symlinks=True)
+
+
+def verify_macos_app_bundle(app_path: Path) -> None:
+    """打包后校验 .app 结构，避免 CI artifact 上传后用户拿到残缺包。"""
+    exe = app_path / "Contents" / "MacOS" / APP_NAME
+    if not exe.is_file():
+        die(f"macOS .app missing executable: {exe}")
+    macos_dir = app_path / "Contents" / "MacOS"
+    internal = macos_dir / "_internal"
+    frameworks = app_path / "Contents" / "Frameworks"
+    has_python = any(
+        p.is_file() or p.is_symlink()
+        for p in [
+            macos_dir / "Python",
+            internal / "Python",
+        ]
+        if p.exists()
+    )
+    if not has_python and frameworks.is_dir():
+        has_python = any(frameworks.rglob("Python*"))
+    if not has_python and internal.is_dir():
+        has_python = any(internal.iterdir())
+    if not has_python:
+        die(
+            "macOS .app missing Python runtime (_internal / Frameworks).\n"
+            f"Checked: {macos_dir}, {internal}, {frameworks}"
+        )
+
+
+def adhoc_sign_macos_app(app_path: Path) -> None:
+    if sys.platform != "darwin":
+        return
+    subprocess.run(
+        ["codesign", "--force", "--deep", "--sign", "-", str(app_path)],
+        check=True,
+    )
+
+
+def package_macos_app_zip(app_path: Path) -> Path:
+    """
+    用 ditto 打 zip（保留符号链接）。
+    GitHub upload-artifact 直接上传 .app 会破坏 symlink，导致 Python 库丢失。
+    """
+    verify_macos_app_bundle(app_path)
+    adhoc_sign_macos_app(app_path)
+    zip_path = RELEASE_DIR / MACOS_ZIP_NAME
+    if zip_path.exists():
+        zip_path.unlink()
+    subprocess.run(
+        [
+            "ditto",
+            "-c",
+            "-k",
+            "--sequesterRsrc",
+            "--keepParent",
+            str(app_path),
+            str(zip_path),
+        ],
+        check=True,
+    )
+    safe_print(f"Packaged {zip_path} ({zip_path.stat().st_size // (1024 * 1024)} MB)")
+    return zip_path
 
 
 def build_pyinstaller(*, clean: bool = True, python: str | None = None, target: str) -> Path:
@@ -229,6 +299,8 @@ def build_pyinstaller(*, clean: bool = True, python: str | None = None, target: 
     subprocess.run(cmd, cwd=str(ARTAPP_ROOT), check=True)
 
     artifact = collect_artifact(target=target)
+    if target == "mac":
+        package_macos_app_zip(artifact)
     write_release_readme(artifact, portable=False, target=target)
     return artifact
 
@@ -241,7 +313,7 @@ def collect_artifact(*, target: str) -> Path:
         if dest.exists():
             shutil.rmtree(dest)
         if src.is_dir():
-            shutil.copytree(src, dest)
+            _copytree_preserve_links(src, dest)
             return dest
     elif target == "win":
         src = DIST_DIR / APP_NAME
@@ -263,7 +335,7 @@ def collect_artifact(*, target: str) -> Path:
         else:
             dest.unlink()
     if only.is_dir():
-        shutil.copytree(only, dest)
+        _copytree_preserve_links(only, dest)
     else:
         shutil.copy2(only, dest)
     return dest
@@ -401,7 +473,7 @@ def write_release_readme(artifact: Path, *, portable: bool, target: str) -> None
     system = platform.system()
 
     if target == "mac" and (artifact.suffix == ".app" or artifact.name.endswith(".app")):
-        run_hint = f"双击 `{artifact.name}` 启动"
+        run_hint = f"解压 `{MACOS_ZIP_NAME}` 后双击 `{artifact.name}` 启动（勿直接运行 Contents/MacOS 内可执行文件）"
         config_hint = """```
 ~/Library/Application Support/ArtPipeline Studio/
 ├── pipeline_config.json

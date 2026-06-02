@@ -30,6 +30,14 @@ SCREENSHOT_MAP = {
     "提示词与工作流截图.png": "prompts-workflow.png",
     "生成的图片可以继续重新绘制截图.png": "img2img-redraw.png",
     "后处理功能.png": "postprocess-editor.png",
+    "创建本地资源分类.png": "create-category.png",
+    "分类功能菜单.png": "category-context-menu.png",
+    "创建本地资源.png": "create-asset-manual.png",
+    "外部资源导入界面.png": "import-external-assets.png",
+    "资源页签功能菜单.png": "asset-context-menu.png",
+    "通过ai生成图片需要的配置.png": "comfyui-checkpoint-setup.png",
+    "提示词生成贴图.png": "prompt-generate.png",
+    "查看本地日志.png": "runtime-logs.png",
 }
 
 # 同步的顶层条目（相对 ArtPipeline 根）
@@ -132,12 +140,14 @@ def rsync_copy(src: Path, dest: Path, *, dry_run: bool) -> None:
 
 
 def sync_screenshots(dest: Path, *, dry_run: bool) -> None:
-    """从 artAppSite 复制功能截图到 docs/images/。"""
+    """从 artAppSite 复制功能截图到 docs/images/ 与 artApp/web/docs/images/。"""
     src_dir = ARTAPP_SITE / "assets" / "screenshots"
     if not src_dir.is_dir():
-        # 兼容截图仍在 artAppSite 根目录
         src_dir = ARTAPP_SITE
-    dest_dir = dest / "docs" / "images"
+    dest_dirs = [
+        dest / "docs" / "images",
+        dest / "artApp" / "web" / "docs" / "images",
+    ]
     copied = 0
     for src_name, dest_name in SCREENSHOT_MAP.items():
         src = src_dir / src_name
@@ -149,11 +159,12 @@ def sync_screenshots(dest: Path, *, dry_run: bool) -> None:
             print(f"  [dry-run] 截图 {src_name} → docs/images/{dest_name}")
             copied += 1
             continue
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest_dir / dest_name)
+        for dest_dir in dest_dirs:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest_dir / dest_name)
         copied += 1
     if copied:
-        print(f"  ✓ 已同步 {copied} 张功能截图 → docs/images/")
+        print(f"  ✓ 已同步 {copied} 张功能截图 → docs/images/ 与 artApp/web/docs/images/")
     elif not dry_run:
         print("  ⚠ 未找到 artAppSite 截图，跳过 docs/images/")
 

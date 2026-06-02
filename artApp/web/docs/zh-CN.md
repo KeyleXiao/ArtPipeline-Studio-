@@ -75,6 +75,16 @@ python run_dev.py
 
 导入时重名文件会跳过；适合把已有贴图快速纳入流水线管理。
 
+![新建分类](images/create-category.png)
+
+![分类右键菜单](images/category-context-menu.png)
+
+![手动新建资源](images/create-asset-manual.png)
+
+![导入外部资源](images/import-external-assets.png)
+
+![资源右键菜单](images/asset-context-menu.png)
+
 右键资源可 **单独生图 / 生成并导出 / 导出**，无需资源处于启用状态。
 
 ### 运行日志
@@ -90,6 +100,12 @@ python run_dev.py
 | Linux | `~/.artpipeline-studio/logs/` |
 
 日志文件为目录下的 **`studio.log`**，重启应用后会从文件尾部恢复最近记录。可点击 **打开目录** 在 Finder / 资源管理器中查看。
+
+![ComfyUI 与 Checkpoint 配置](images/comfyui-checkpoint-setup.png)
+
+![提示词与生成结果](images/prompt-generate.png)
+
+![运行日志与日志目录](images/runtime-logs.png)
 
 ### AI 助手
 

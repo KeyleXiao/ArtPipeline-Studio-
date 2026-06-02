@@ -75,6 +75,16 @@ Click **+ New asset** in the asset list:
 
 Duplicate filenames are skipped. Right-click an asset to **generate / generate & export / export** one item without enabling it in the list.
 
+![Create category](images/create-category.png)
+
+![Category menu](images/category-context-menu.png)
+
+![Manual new asset](images/create-asset-manual.png)
+
+![Import external files](images/import-external-assets.png)
+
+![Asset context menu](images/asset-context-menu.png)
+
 ### Runtime logs
 
 Use the **Logs** FAB for live SSE output (All / Action / Generate / System).
@@ -88,6 +98,12 @@ Under **Settings → Log directory**, set where `studio.log` is written; leave e
 | Linux | `~/.artpipeline-studio/logs/` |
 
 Recent lines are restored from the log file after restart. **Open folder** reveals the directory in Finder / Explorer.
+
+![ComfyUI & checkpoint setup](images/comfyui-checkpoint-setup.png)
+
+![Prompts & generation](images/prompt-generate.png)
+
+![Runtime logs](images/runtime-logs.png)
 
 ### AI assistant
 

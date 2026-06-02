@@ -1012,6 +1012,28 @@
       "ref_image": "",
       "ref_image_use_source": false,
       "img2img_denoise": 0.65
+    },
+    {
+      "id": "tap_appicon",
+      "filename": "_tap_appicon.png",
+      "category": "avatar",
+      "width": 270,
+      "height": 270,
+      "subject": "",
+      "positive": "",
+      "negative": "",
+      "positive_g": "",
+      "positive_l": "",
+      "workflow": "workflows/assets/tap_appicon.json",
+      "enabled": false,
+      "gen_scale": 2.0,
+      "seed": "",
+      "checkpoint": "",
+      "remove_bg_mode": "inherit",
+      "gen_mode": "txt2img",
+      "ref_image": "",
+      "ref_image_use_source": false,
+      "img2img_denoise": 0.65
     }
   ]
 }

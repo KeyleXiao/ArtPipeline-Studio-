@@ -8,6 +8,7 @@
 
 产物:
   release/ArtPipeline Studio.app
+  release/ArtPipeline-Studio-macOS.zip   # CI 分发用（ditto 保留符号链接）
 """
 
 from __future__ import annotations

@@ -42,7 +42,7 @@ jobs:
             venv_py: .build-venv/bin/python
             build_script: build_release_mac.py
             artifact_name: ArtPipeline-Studio-macOS
-            artifact_path: release/ArtPipeline Studio.app
+            artifact_path: release/ArtPipeline-Studio-macOS.zip
 
     defaults:
       run:
@@ -109,6 +109,26 @@ jobs:
         run: |
           ls -la "${{ steps.paths.outputs.artapp }}/release/" || true
           ls -la "${{ steps.paths.outputs.artapp }}/${{ matrix.artifact_path }}" || true
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            APP="${{ steps.paths.outputs.artapp }}/release/ArtPipeline Studio.app"
+            if [ -d "$APP" ]; then
+              ls -la "$APP/Contents/MacOS/" | head -20
+              test -f "$APP/Contents/MacOS/ArtPipeline Studio"
+            fi
+          fi
+
+      - name: Verify macOS zip bundle
+        if: matrix.platform == 'macos'
+        run: |
+          set -euo pipefail
+          ZIP="${{ steps.paths.outputs.artapp }}/release/ArtPipeline-Studio-macOS.zip"
+          test -f "$ZIP"
+          rm -rf /tmp/aps-verify
+          ditto -x -k "$ZIP" /tmp/aps-verify
+          APP="/tmp/aps-verify/ArtPipeline Studio.app"
+          test -f "$APP/Contents/MacOS/ArtPipeline Studio"
+          ls -la "$APP/Contents/MacOS/" | head -15
+          echo "✓ macOS zip bundle OK"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -116,3 +136,53 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ steps.paths.outputs.artapp }}/${{ matrix.artifact_path }}
           if-no-files-found: error
+
+  publish:
+    name: publish-release
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          MAC_ZIP="artifacts/ArtPipeline-Studio-macOS/ArtPipeline-Studio-macOS.zip"
+          if [ ! -f "$MAC_ZIP" ]; then
+            MAC_ZIP="$(find artifacts -name 'ArtPipeline-Studio-macOS.zip' | head -1)"
+          fi
+          test -f "$MAC_ZIP"
+          cp "$MAC_ZIP" release-assets/ArtPipeline-Studio-macOS.zip
+          WIN_DIR="artifacts/ArtPipeline-Studio-Windows"
+          if [ ! -d "$WIN_DIR" ]; then
+            WIN_DIR="$(find artifacts -type d -name 'ArtPipeline Studio' | head -1)"
+          fi
+          test -d "$WIN_DIR"
+          (cd "$WIN_DIR" && zip -r "$GITHUB_WORKSPACE/release-assets/ArtPipeline-Studio-Windows.zip" .)
+          ls -la release-assets/
+
+      - name: Publish GitHub Release (latest download links)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-desktop
+          target_commitish: ${{ github.sha }}
+          name: Desktop · Latest
+          body: |
+            自动构建（main 分支最新成功产物）
+
+            | 平台 | 文件 | 说明 |
+            |------|------|------|
+            | macOS | `ArtPipeline-Studio-macOS.zip` | 解压后双击 **ArtPipeline Studio.app** |
+            | Windows | `ArtPipeline-Studio-Windows.zip` | 解压后运行 **ArtPipeline Studio.exe** |
+
+            Commit: ${{ github.sha }}
+          files: release-assets/*
+          prerelease: false
+          make_latest: true
+          overwrite_files: true

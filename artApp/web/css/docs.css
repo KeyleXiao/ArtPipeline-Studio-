@@ -565,6 +565,27 @@
   border-bottom-color: rgba(34, 211, 238, 0.5);
 }
 
+.markdown-body .md-figure {
+  margin: 18px 0 26px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.markdown-body .md-figure img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.markdown-body .md-figure figcaption {
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+
 .docs-footer {
   position: relative;
   z-index: 1;
