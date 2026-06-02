@@ -516,6 +516,7 @@ async function loadSettingsForm() {
   for (const k of [
     "project_root",
     "art_pipeline_root",
+    "log_dir",
     "comfyui_url",
     "steps",
     "cfg",
@@ -527,6 +528,19 @@ async function loadSettingsForm() {
   ]) {
     if (form[k] !== undefined) form[k].value = data[k] ?? "";
   }
+  updateLogDirHint(data);
+}
+
+function updateLogDirHint(data) {
+  const hint = $("#log-dir-hint");
+  if (!hint) return;
+  const effective = data?.log_dir_effective || data?.log_dir_default || "";
+  hint.textContent = t("form.logDirHint", { path: effective, file: data?.log_file || "" });
+}
+
+function formSettingsLogDir() {
+  const form = $("#form-settings");
+  return form?.log_dir?.value?.trim() || "";
 }
 
 function aiHistoryUrl(mode = state.aiMode) {
@@ -2028,6 +2042,7 @@ async function saveSettings(e) {
     await API.put("/api/settings", body);
     toast(t("toast.settingsSaved"));
     await loadCheckpoints();
+    await loadSettingsForm();
   }).catch((err) => {
     if (err) toast(err.message);
   });
@@ -2780,6 +2795,182 @@ async function newCategoryDialog() {
   };
 }
 
+let newAssetDlgTab = "manual";
+/** @type {{ id: string, file: File, url: string, width?: number, height?: number }[]} */
+let importDraftFiles = [];
+let importDraftSeq = 0;
+let newAssetImportBound = false;
+
+function importAssetTargetName(file) {
+  const stem = (file.name || "import").replace(/\.[^.]+$/, "").trim() || "import";
+  return `${stem}.png`;
+}
+
+function resetImportDraft() {
+  for (const item of importDraftFiles) {
+    if (item.url) URL.revokeObjectURL(item.url);
+  }
+  importDraftFiles = [];
+  const input = $("#import-asset-files");
+  if (input) input.value = "";
+  renderImportAssetList();
+}
+
+function updateNewAssetSubmitLabel() {
+  const btn = $("#new-asset-submit");
+  if (!btn) return;
+  if (newAssetDlgTab === "import") {
+    const n = importDraftFiles.length;
+    btn.textContent = n > 0 ? t("dlg.importCreate", { n }) : t("dlg.create");
+  } else {
+    btn.textContent = t("dlg.create");
+  }
+}
+
+function switchNewAssetDlgTab(tab) {
+  newAssetDlgTab = tab;
+  const dlg = $("#dlg-new-asset");
+  if (!dlg) return;
+  dlg.querySelectorAll(".dlg-tab").forEach((btn) => {
+    const active = btn.dataset.dlgTab === tab;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  dlg.querySelectorAll("[data-dlg-panel]").forEach((panel) => {
+    const show = panel.dataset.dlgPanel === tab;
+    panel.classList.toggle("hidden", !show);
+    panel.hidden = !show;
+  });
+  updateNewAssetSubmitLabel();
+}
+
+function probeImportImageSize(item) {
+  const img = new Image();
+  img.onload = () => {
+    item.width = img.naturalWidth;
+    item.height = img.naturalHeight;
+    renderImportAssetList();
+  };
+  img.onerror = () => {};
+  img.src = item.url;
+}
+
+function addImportDraftFiles(fileList) {
+  const existing = new Set(importDraftFiles.map((x) => x.file.name));
+  for (const file of fileList) {
+    if (!file || !file.type.startsWith("image/")) continue;
+    if (existing.has(file.name)) continue;
+    existing.add(file.name);
+    const item = {
+      id: `imp-${++importDraftSeq}`,
+      file,
+      url: URL.createObjectURL(file),
+    };
+    importDraftFiles.push(item);
+    probeImportImageSize(item);
+  }
+  renderImportAssetList();
+}
+
+function removeImportDraftFile(id) {
+  const idx = importDraftFiles.findIndex((x) => x.id === id);
+  if (idx < 0) return;
+  const [removed] = importDraftFiles.splice(idx, 1);
+  if (removed?.url) URL.revokeObjectURL(removed.url);
+  renderImportAssetList();
+}
+
+function renderImportAssetList() {
+  const list = $("#import-asset-list");
+  const countEl = $("#import-asset-count");
+  const emptyEl = $("#import-asset-empty");
+  if (!list) return;
+
+  list.replaceChildren();
+  for (const item of importDraftFiles) {
+    const li = document.createElement("li");
+    li.className = "import-asset-item";
+    li.dataset.importId = item.id;
+
+    const thumb = document.createElement("img");
+    thumb.className = "import-asset-thumb";
+    thumb.src = item.url;
+    thumb.alt = "";
+    thumb.loading = "lazy";
+
+    const meta = document.createElement("div");
+    meta.className = "import-asset-meta";
+
+    const name = document.createElement("div");
+    name.className = "import-asset-name";
+    name.textContent = importAssetTargetName(item.file);
+    name.title = item.file.name;
+
+    const sub = document.createElement("div");
+    sub.className = "import-asset-sub";
+    const parts = [formatBytes(item.file.size)];
+    if (item.width && item.height) parts.push(`${item.width}×${item.height}`);
+    sub.textContent = parts.filter(Boolean).join(" · ");
+
+    meta.append(name, sub);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "import-asset-remove";
+    removeBtn.textContent = "×";
+    removeBtn.setAttribute("aria-label", t("asset.delete"));
+    removeBtn.dataset.importRemove = item.id;
+
+    li.append(thumb, meta, removeBtn);
+    list.appendChild(li);
+  }
+
+  if (countEl) {
+    countEl.textContent =
+      importDraftFiles.length > 0
+        ? t("dlg.importCount", { n: importDraftFiles.length })
+        : "";
+  }
+  if (emptyEl) {
+    emptyEl.hidden = importDraftFiles.length > 0;
+  }
+  updateNewAssetSubmitLabel();
+}
+
+function bindNewAssetImportUi() {
+  if (newAssetImportBound) return;
+  newAssetImportBound = true;
+
+  const dlg = $("#dlg-new-asset");
+  const form = $("#form-new-asset");
+  const fileInput = $("#import-asset-files");
+  const pickBtn = $("#import-asset-pick");
+  const list = $("#import-asset-list");
+
+  form?.querySelectorAll(".dlg-tab").forEach((tab) => {
+    tab.addEventListener("click", () => switchNewAssetDlgTab(tab.dataset.dlgTab || "manual"));
+  });
+
+  pickBtn?.addEventListener("click", () => fileInput?.click());
+
+  fileInput?.addEventListener("change", () => {
+    if (fileInput.files?.length) addImportDraftFiles(fileInput.files);
+    fileInput.value = "";
+  });
+
+  list?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-import-remove]");
+    if (!btn) return;
+    removeImportDraftFile(btn.dataset.importRemove);
+  });
+
+  dlg?.addEventListener("close", () => {
+    resetImportDraft();
+    switchNewAssetDlgTab("manual");
+    setFormError(form, "");
+  });
+}
+
 function parseNewAssetForm(form) {
   const filename = form.filename.value.trim();
   const size = parseInt(form.size.value, 10);
@@ -2800,22 +2991,71 @@ async function newAssetDialog() {
     toast(t("toast.selectCategory"), { variant: "error" });
     return;
   }
+  bindNewAssetImportUi();
   const dlg = $("#dlg-new-asset");
   const form = $("#form-new-asset");
   if (!dlg || !form) return;
   form.reset();
+  resetImportDraft();
+  switchNewAssetDlgTab("manual");
   setFormError(form, "");
   dlg.showModal();
   form.onsubmit = async (e) => {
     e.preventDefault();
     setFormError(form, "");
+    const submitBtn = e.submitter || form.querySelector('button[type="submit"]');
+
+    if (newAssetDlgTab === "import") {
+      if (importDraftFiles.length === 0) {
+        const msg = t("toast.importEmpty");
+        setFormError(form, msg);
+        toast(msg, { variant: "error" });
+        return;
+      }
+      await withBtnBusy(submitBtn, async () => {
+        try {
+          const fd = new FormData();
+          fd.append("category", state.categoryId);
+          for (const item of importDraftFiles) {
+            fd.append("files", item.file, item.file.name);
+          }
+          const result = await API.postForm("/api/assets/import", fd);
+          dlg.close();
+          resetImportDraft();
+          await loadAssetList();
+          updateMainTabsVisibility();
+          const created = result?.created || [];
+          const failed = result?.failed || [];
+          if (failed.length) {
+            toast(
+              t("toast.assetsImportedPartial", {
+                ok: result.count ?? created.length,
+                fail: failed.length,
+              }),
+              { variant: failed.length && !created.length ? "error" : "warning" },
+            );
+          } else {
+            toast(t("toast.assetsImported", { n: result.count ?? created.length }));
+          }
+          if (created[0]?.id) {
+            await selectAsset(created[0].id);
+            switchTab("basic");
+          }
+        } catch (err) {
+          setFormError(form, err.message);
+          toast(err.message, { variant: "error" });
+          throw err;
+        }
+      });
+      return;
+    }
+
     const parsed = parseNewAssetForm(form);
     if (parsed.error) {
       setFormError(form, parsed.error);
       toast(parsed.error, { variant: "error" });
       return;
     }
-    const submitBtn = e.submitter || form.querySelector('button[type="submit"]');
     await withBtnBusy(submitBtn, async () => {
       try {
         const asset = await API.post("/api/assets", {
@@ -3107,6 +3347,20 @@ function bindUi() {
           const form = $("#form-settings");
           form.project_root.value = p.project_root;
           form.art_pipeline_root.value = p.art_pipeline_root;
+          if (p.log_dir && form.log_dir) form.log_dir.value = p.log_dir;
+        }).catch((err) => {
+          if (err) toast(err.message);
+        });
+        break;
+      case "open-log-dir":
+        await withBtnBusy(btn, async () => {
+          const data = await API.get("/api/settings");
+          const dir = (formSettingsLogDir() || data.log_dir_effective || "").trim();
+          if (!dir) {
+            toast(t("toast.logDirMissing"), { variant: "error" });
+            return;
+          }
+          await openPath(dir);
         }).catch((err) => {
           if (err) toast(err.message);
         });

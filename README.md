@@ -34,12 +34,14 @@ ComfyUI 生成 → source 原图 → inbox 后处理 → 游戏引擎目录
 | 能力 | 说明 |
 |------|------|
 | 分类与资源库 | 多分类、搜索、新建 / 重命名 / 删除；**S·in·U** 三态路径追踪 |
+| **导入外部资源** | 新建资源对话框支持多选 PNG/JPG/WebP，按文件名批量创建并写入 source + inbox |
 | Checkpoint 分层 | 分类级默认模型；单资源可在基本信息覆盖；ComfyUI URL 拉取模型列表 |
-| ComfyUI 批量 | 生成选中 / 本类 / 生成并导出；浮动进度，可停止 |
+| ComfyUI 批量 | 生成选中 / 本类 / 生成并导出；浮动进度，可停止；右键可对单个资源生图 |
 | img2img 重绘 | 基于 inbox 或 source 继续生成，denoise 可调 |
 | 提示词与工作流 | 每资源 subject、正/负向 prompt、独立 workflow JSON |
 | 后处理编辑器 | 图层、裁切、文字、模板；写入 inbox 或导出引擎 |
-| AI 助手 | 自由对话 / 写提示词 / 优化 / 工作流（需 DeepSeek Key） |
+| AI 助手 | 自由对话 / 写提示词 / 优化 / 工作流（需 DeepSeek Key）；自动保存对话 |
+| 运行日志 | 抽屉实时查看；可配置日志目录，持久化写入 `studio.log` |
 | 跨分类迁移 | 长按资源拖到其他分类，确认后移动三路径 PNG |
 | 中 / EN | 界面双语 |
 
@@ -121,6 +123,7 @@ cp ../tools/pipeline_config.example.json ../tools/pipeline_config.json
 - **ComfyUI URL**（默认 `http://127.0.0.1:8188`，用于拉取 checkpoint 列表与提交生图）
 - **ArtPipeline 根目录**（含 `source/`、`inbox/`、`workflows/` 的目录）
 - **游戏项目根目录**
+- **运行日志目录**（可选；留空则使用系统默认，日志写入 `studio.log`）
 - **DeepSeek API Key**（使用 AI 助手时）
 
 在 **「分类设置」** 中为每个分类选择 **Checkpoint**（生图模型）；单个资源可在 **「基本信息」** 中覆盖为独立模型（留空则跟随分类）。
@@ -193,6 +196,13 @@ your-art-workspace/
 - macOS：`~/Library/Application Support/ArtPipeline Studio/`
 - Windows：`%LOCALAPPDATA%\ArtPipeline Studio\`
 
+运行日志（`studio.log`）默认目录：
+
+- macOS：`~/Library/Logs/ArtPipeline Studio/`
+- Windows：`%LOCALAPPDATA%\ArtPipeline Studio\Logs\`
+
+可在应用 **全局设置** 中修改日志目录。
+
 **在 Mac 上打 Windows 包**：PyInstaller 无法交叉编译，可用 GitHub Actions（`.github/workflows/build-release.yml`，并行构建 Windows + macOS）或在 Windows / 虚拟机中执行 `build_release_win.py`。
 
 ---
@@ -214,6 +224,7 @@ your-art-workspace/
 | 官网与截图 | [art.vrast.cn](https://art.vrast.cn) |
 | 在线使用文档 | [art.vrast.cn/docs.html](https://art.vrast.cn/docs.html) |
 | 应用内 Markdown | [artApp/web/docs/zh-CN.md](artApp/web/docs/zh-CN.md) |
+| 近期更新 | [docs/更新日志.md](docs/更新日志.md) |
 | artApp 开发说明 | [artApp/README.md](artApp/README.md) |
 | 工具与 CLI | [tools/README.md](tools/README.md) |
 | 目录规范 | [docs/目录说明.md](docs/目录说明.md) |

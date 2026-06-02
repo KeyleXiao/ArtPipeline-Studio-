@@ -22,3 +22,18 @@ ASSETS_ROOT = PROJECT_ROOT / "Assets"
 
 DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188"
 DEFAULT_CHECKPOINT = "animagineXL_v3.safetensors"
+
+
+def default_log_dir() -> Path:
+    """各平台默认运行日志目录（用户可在全局配置中覆盖）。"""
+    import os
+    import sys
+
+    home = Path.home()
+    if sys.platform == "darwin":
+        return (home / "Library" / "Logs" / "ArtPipeline Studio").resolve()
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        root = Path(base) if base else home / "ArtPipeline Studio"
+        return (root / "Logs").resolve()
+    return (home / ".artpipeline-studio" / "logs").resolve()

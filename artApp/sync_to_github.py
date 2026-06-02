@@ -90,6 +90,7 @@ SANITIZE_DEFAULT_KEYS = (
     "deepseek_api_key",
     "project_root",
     "art_pipeline_root",
+    "log_dir",
 )
 
 SK_PATTERN = re.compile(r"sk-[A-Za-z0-9]{8,}")

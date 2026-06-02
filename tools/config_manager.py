@@ -198,6 +198,14 @@ class ConfigManager:
             return sibling.resolve()
         return ART_ROOT.resolve()
 
+    def log_dir(self) -> Path:
+        raw = str(self.defaults.get("log_dir", "")).strip()
+        if raw:
+            return Path(raw).expanduser().resolve()
+        from paths import default_log_dir
+
+        return default_log_dir()
+
     @staticmethod
     def _join_under(root: Path, rel: str) -> Path:
         rel = rel.strip().replace("\\", "/").strip("/")

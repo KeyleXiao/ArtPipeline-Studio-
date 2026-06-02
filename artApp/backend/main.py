@@ -49,13 +49,17 @@ def create_app() -> FastAPI:
         from backend.services.log_bus import log_bus
 
         log_bus.bind_loop(asyncio.get_running_loop())
-        from backend.deps import get_config_manager
+        from backend.deps import get_config_manager, sync_log_bus_from_config
 
+        sync_log_bus_from_config()
         cfg = get_config_manager()
         log_bus.log(
             f"ArtPipeline Web 已启动 · {len(cfg.categories())} 分类 · {len(cfg.assets())} 资源",
             kind="系统",
         )
+        log_file = log_bus.log_file_path()
+        if log_file:
+            log_bus.log(f"运行日志文件: {log_file}", kind="系统")
 
     if WEB_DIR.is_dir():
         app.mount("/", StaticFilesSkipApiWrite(directory=str(WEB_DIR), html=True), name="web")

@@ -14,11 +14,11 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from backend.deps import TOOLS_DIR, get_config_manager, reload_config_manager
+from backend.deps import TOOLS_DIR, get_config_manager, reload_config_manager, sync_log_bus_from_config
 from backend.services.log_bus import log_bus
 from backend.services.pipeline_runner import pipeline_runner
 from backend.services.preview import PREVIEW_MAX, PreviewSource, preview_png_bytes, resolve_path_for_source
@@ -416,10 +416,17 @@ async def stream_logs() -> StreamingResponse:
 
 @router.get("/settings")
 def get_settings() -> dict[str, Any]:
-    d = get_config_manager().defaults
+    from paths import default_log_dir
+
+    config = get_config_manager()
+    d = config.defaults
     return {
         "project_root": str(d.get("project_root", "")),
         "art_pipeline_root": str(d.get("art_pipeline_root", "")),
+        "log_dir": str(d.get("log_dir", "")),
+        "log_dir_default": str(default_log_dir()),
+        "log_dir_effective": str(config.log_dir()),
+        "log_file": str((config.log_dir() / "studio.log")),
         "comfyui_url": str(d.get("comfyui_url", "")),
         "steps": int(d.get("steps", 35)),
         "cfg": float(d.get("cfg", 7.0)),
@@ -444,6 +451,17 @@ def put_settings(body: dict[str, Any]) -> dict[str, str]:
     art = str(body.get("art_pipeline_root", "")).strip()
     if art and not Path(art).expanduser().is_dir():
         raise HTTPException(400, f"ArtPipeline 根目录不存在: {art}")
+    if "log_dir" in body:
+        log_dir = str(body.get("log_dir", "")).strip()
+        if log_dir:
+            log_path = Path(log_dir).expanduser()
+            try:
+                log_path.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise HTTPException(400, f"无法创建日志目录: {exc}") from exc
+            if not log_path.is_dir():
+                raise HTTPException(400, f"日志路径不是目录: {log_dir}")
+        d["log_dir"] = log_dir
     for key in (
         "project_root",
         "art_pipeline_root",
@@ -467,15 +485,20 @@ def put_settings(body: dict[str, Any]) -> dict[str, str]:
         d["deepseek_model"] = m
     config.save()
     reload_config_manager()
+    sync_log_bus_from_config()
     log_bus.log("全局设置已保存", kind="系统")
     return {"status": "saved"}
 
 
 @router.get("/settings/paths/default")
 def default_paths() -> dict[str, str]:
-    from paths import ART_ROOT, PROJECT_ROOT
+    from paths import ART_ROOT, PROJECT_ROOT, default_log_dir
 
-    return {"project_root": str(PROJECT_ROOT.resolve()), "art_pipeline_root": str(ART_ROOT.resolve())}
+    return {
+        "project_root": str(PROJECT_ROOT.resolve()),
+        "art_pipeline_root": str(ART_ROOT.resolve()),
+        "log_dir": str(default_log_dir()),
+    }
 
 
 # ── Categories ─────────────────────────────────────────────
@@ -722,6 +745,96 @@ def create_asset(body: NewAssetBody) -> dict[str, Any]:
         return _asset_dict(asset, full=True)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+def _normalize_import_filename(name: str) -> str:
+    stem = Path(name or "import").stem.strip() or "import"
+    return f"{stem}.png"
+
+
+def _import_asset_image(
+    config: Any,
+    *,
+    category: str,
+    original_name: str,
+    content: bytes,
+) -> Any:
+    import io
+
+    from PIL import Image
+
+    if not content:
+        raise ValueError("空文件")
+    try:
+        img = Image.open(io.BytesIO(content))
+        width, height = img.size
+    except Exception as exc:
+        raise ValueError(f"无法读取图片: {exc}") from exc
+
+    filename = _normalize_import_filename(original_name)
+    if config.asset_by_filename(filename):
+        raise ValueError(f"文件名已存在: {filename}")
+
+    asset = config.add_asset(
+        filename=filename,
+        category=category,
+        width=int(width),
+        height=int(height),
+        subject="",
+        enabled=False,
+    )
+    buf = io.BytesIO()
+    img.convert("RGBA").save(buf, format="PNG", optimize=True)
+    png = buf.getvalue()
+    src_path, inbox_path, _ = config.resolve_paths(asset)
+    src_path.parent.mkdir(parents=True, exist_ok=True)
+    inbox_path.parent.mkdir(parents=True, exist_ok=True)
+    src_path.write_bytes(png)
+    inbox_path.write_bytes(png)
+    return asset
+
+
+@router.post("/assets/import")
+async def import_assets(
+    category: str = Form(...),
+    files: list[UploadFile] = File(...),
+) -> dict[str, Any]:
+    if not category.strip():
+        raise HTTPException(400, "分类不能为空")
+    if not files:
+        raise HTTPException(400, "未选择文件")
+    config = get_config_manager()
+    if not config.category_by_id(category):
+        raise HTTPException(404, f"未知分类: {category}")
+
+    created: list[dict[str, Any]] = []
+    failed: list[dict[str, str]] = []
+    for upload in files:
+        raw_name = Path(upload.filename or "import.png").name
+        try:
+            content = await upload.read()
+            asset = _import_asset_image(
+                config,
+                category=category,
+                original_name=raw_name,
+                content=content,
+            )
+            created.append(_asset_dict(asset, full=True))
+        except ValueError as exc:
+            failed.append({"filename": raw_name, "error": str(exc)})
+        except OSError as exc:
+            failed.append({"filename": raw_name, "error": f"写入失败: {exc}"})
+
+    if created:
+        reload_config_manager()
+        log_bus.log(
+            f"批量导入 {len(created)} 个资源 → 分类 {category}"
+            + (f"（{len(failed)} 失败）" if failed else ""),
+            kind="操作",
+        )
+    if not created and failed:
+        raise HTTPException(400, failed[0]["error"])
+    return {"created": created, "failed": failed, "count": len(created)}
 
 
 @router.delete("/assets/{asset_id}")

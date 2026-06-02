@@ -18,18 +18,20 @@ import sys
 
 from release_build import (
     BUILD_VENV,
+    die,
     ensure_build_venv,
     build_portable_win,
     build_pyinstaller,
+    safe_print,
     venv_python_path,
 )
 
 
 def _require_windows() -> None:
     if sys.platform != "win32":
-        raise SystemExit(
-            "build_release_win.py 仅支持在 Windows 上运行。\n"
-            "macOS 请使用: python3 build_release_mac.py"
+        die(
+            "build_release_win.py must run on Windows.\n"
+            "On macOS use: python3 build_release_mac.py"
         )
 
 
@@ -50,13 +52,13 @@ def main() -> None:
 
     if args.setup_venv:
         ensure_build_venv(recreate=False)
-        print(f"\n✓ 构建环境就绪: {BUILD_VENV}")
+        safe_print(f"\n[OK] Build venv ready: {BUILD_VENV}")
         return
 
     _require_windows()
     if args.portable:
         artifact = build_portable_win()
-        print(f"\n✓ Windows 便携版: {artifact}")
+        safe_print(f"\n[OK] Windows portable: {artifact}")
         return
 
     py = venv_python_path()
@@ -69,9 +71,9 @@ def main() -> None:
             python=str(py),
             target="win",
         )
-        print(f"\n✓ Windows 独立版: {artifact}")
+        safe_print(f"\n[OK] Windows standalone: {artifact}")
     except subprocess.CalledProcessError as exc:
-        raise SystemExit(f"PyInstaller 打包失败: {exc}") from exc
+        die(f"PyInstaller build failed: {exc}")
 
 
 if __name__ == "__main__":

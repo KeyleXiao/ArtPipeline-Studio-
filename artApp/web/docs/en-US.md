@@ -64,6 +64,31 @@ Open the URL shown in the terminal (default `http://127.0.0.1:8765`).
 
 Preview shows **post-process composite** when configured; otherwise the inbox/source image. Switch source / inbox / engine to inspect each stage.
 
+### New asset & import
+
+Click **+ New asset** in the asset list:
+
+| Mode | Description |
+|------|-------------|
+| **Manual** | Filename, size, description — config only (disabled by default, no auto-generation) |
+| **Import files** | Multi-select PNG / JPG / WebP; preview list with per-file remove; batch-create by filename into **source** and **inbox** (saved as PNG) |
+
+Duplicate filenames are skipped. Right-click an asset to **generate / generate & export / export** one item without enabling it in the list.
+
+### Runtime logs
+
+Use the **Logs** FAB for live SSE output (All / Action / Generate / System).
+
+Under **Settings → Log directory**, set where `studio.log` is written; leave empty for OS defaults:
+
+| Platform | Default |
+|----------|---------|
+| macOS | `~/Library/Logs/ArtPipeline Studio/` |
+| Windows | `%LOCALAPPDATA%\ArtPipeline Studio\Logs\` |
+| Linux | `~/.artpipeline-studio/logs/` |
+
+Recent lines are restored from the log file after restart. **Open folder** reveals the directory in Finder / Explorer.
+
 ### AI assistant
 
 Modes: write prompts, refine, workflow, free chat. Configure DeepSeek API Key in **Settings**. AI uses asset category, size, and existing prompts; some modes write back to config.

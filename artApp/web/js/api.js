@@ -40,6 +40,11 @@ const API = {
       body: JSON.stringify(body),
     }),
   del: (p) => API.json(p, { method: "DELETE" }),
+  postForm: (p, formData) =>
+    API.json(p, {
+      method: "POST",
+      body: formData,
+    }),
 };
 
 export { API };

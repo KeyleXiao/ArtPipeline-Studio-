@@ -3,11 +3,56 @@
 
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+# GHA Windows 默认 cp1252；在任意 print 之前尽量启用 UTF-8
+os.environ.setdefault("PYTHONUTF8", "1")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
+
+def configure_stdio_utf8() -> None:
+    """Windows 控制台默认 cp1252，尽量设为 UTF-8（GHA 上 reconfigure 可能无效）。"""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+
+def safe_print(*args: object, sep: str = " ", end: str = "\n", file=None) -> None:
+    """CI/Windows 控制台可能为 cp1252，避免 UnicodeEncodeError。"""
+    stream = file or sys.stdout
+    text = sep.join(str(a) for a in args) + end
+    buf = getattr(stream, "buffer", None)
+    if buf is not None:
+        try:
+            buf.write(text.encode("utf-8", errors="replace"))
+            buf.flush()
+            return
+        except (OSError, ValueError, AttributeError):
+            pass
+    try:
+        stream.write(text)
+        stream.flush()
+    except UnicodeEncodeError:
+        fallback = text.encode("ascii", errors="replace").decode("ascii")
+        stream.write(fallback)
+        stream.flush()
+
+
+def die(msg: str, code: int = 1) -> None:
+    """打印消息后退出（避免 SystemExit 中文信息在 cp1252 下再次编码失败）。"""
+    safe_print(msg, file=sys.stderr)
+    raise SystemExit(code)
+
+configure_stdio_utf8()
 
 ARTAPP_ROOT = Path(__file__).resolve().parent
 BUILD_VENV = ARTAPP_ROOT / ".build-venv"
@@ -50,7 +95,7 @@ def ensure_build_venv(*, recreate: bool = False) -> Path:
     if recreate and BUILD_VENV.exists():
         shutil.rmtree(BUILD_VENV)
     if not venv_python_path().is_file():
-        print(">>> 创建构建虚拟环境 .build-venv …")
+        safe_print(">>> Creating build venv .build-venv ...")
         subprocess.run([sys.executable, "-m", "venv", str(BUILD_VENV)], check=True)
     pip = venv_pip_path()
     subprocess.run([str(pip), "install", "-U", "pip", "wheel"], check=True)
@@ -79,10 +124,10 @@ def _ensure_pyinstaller(python: str | None = None) -> None:
         text=True,
     )
     if result.returncode != 0:
-        raise SystemExit(
-            "请先安装 PyInstaller：\n"
+        die(
+            "PyInstaller not found. Install with:\n"
             f"  {py} -m pip install -r requirements-build.txt\n"
-            "或运行: python build_release_win.py --setup-venv"
+            "Or run: python build_release_win.py --setup-venv"
         )
 
 
@@ -169,9 +214,9 @@ def build_pyinstaller(*, clean: bool = True, python: str | None = None, target: 
     py = python or build_python()
     _ensure_pyinstaller(py)
     if not TOOLS_DIR.is_dir():
-        raise SystemExit(f"缺少 tools 目录: {TOOLS_DIR}")
+        die(f"Missing tools directory: {TOOLS_DIR}")
     if not ENTRY.is_file():
-        raise SystemExit(f"缺少入口: {ENTRY}")
+        die(f"Missing entry script: {ENTRY}")
 
     RELEASE_DIR.mkdir(parents=True, exist_ok=True)
     if clean:
@@ -180,7 +225,7 @@ def build_pyinstaller(*, clean: bool = True, python: str | None = None, target: 
                 shutil.rmtree(d)
 
     cmd = pyinstaller_cmd(python=py, target=target)
-    print(">>>", " ".join(cmd))
+    safe_print(">>>", " ".join(cmd))
     subprocess.run(cmd, cwd=str(ARTAPP_ROOT), check=True)
 
     artifact = collect_artifact(target=target)
@@ -209,7 +254,7 @@ def collect_artifact(*, target: str) -> Path:
 
     candidates = list(DIST_DIR.iterdir()) if DIST_DIR.is_dir() else []
     if not candidates:
-        raise SystemExit(f"打包失败：{DIST_DIR} 为空")
+        die(f"PyInstaller output empty: {DIST_DIR}")
     only = candidates[0]
     dest = RELEASE_DIR / only.name
     if dest.exists():
@@ -304,7 +349,7 @@ exec python3 run_app.py "$@"
         shutil.copy2(ICON, icon_dest)
 
     write_release_readme(app_path, portable=True, target="mac")
-    print("便携 .app 已生成（需本机已安装 Python 3 + pip 依赖）")
+    safe_print("Portable .app ready (requires system Python 3 + pip deps)")
     return app_path
 
 
@@ -347,7 +392,7 @@ python run_app.py %*
         shutil.copy2(ICON, dest / "app_icon.png")
 
     write_release_readme(dest, portable=True, target="win")
-    print("便携目录已生成（需本机已安装 Python 3 + pip 依赖）")
+    safe_print("Portable folder ready (requires system Python 3 + pip deps)")
     return dest
 
 
@@ -443,4 +488,4 @@ cd ArtPipeline/artApp
 """,
         encoding="utf-8",
     )
-    print(f"已写入 {readme}")
+    safe_print(f"Wrote {readme}")

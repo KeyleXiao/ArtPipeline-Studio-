@@ -1651,6 +1651,53 @@ body.is-col-resizing * {
   color: var(--text);
   font: inherit;
   resize: vertical;
+  box-sizing: border-box;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.form-grid select,
+dialog select,
+.log-head select,
+#pp-template,
+#pp-fonts {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 32px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' stroke='%238b93a7' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+}
+
+.form-grid select:hover,
+dialog select:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  background-color: var(--bg-hover);
+}
+
+.form-grid select:focus-visible,
+dialog select:focus-visible {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.form-grid input:not([type="checkbox"]):not([type="radio"]):hover,
+.form-grid textarea:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  background-color: var(--bg-hover);
+}
+
+.form-grid input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+.form-grid textarea:focus-visible {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
 
 .form-actions {
@@ -2207,7 +2254,9 @@ body.is-col-resizing * {
 
 .log-head select {
   font-size: 0.72rem;
-  padding: 3px 6px;
+  padding: 3px 24px 3px 6px;
+  background-position: right 6px center;
+  background-size: 10px;
 }
 
 .log-close {
@@ -2248,6 +2297,139 @@ dialog h3 {
   margin: 0 0 12px;
 }
 
+.dialog-form .muted.sm {
+  margin: -4px 0 4px;
+  line-height: 1.45;
+}
+
+.dlg-new-asset {
+  min-width: min(420px, calc(100vw - 32px));
+  max-width: min(480px, calc(100vw - 24px));
+}
+
+.dlg-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.dlg-tab {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.dlg-tab:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.dlg-tab.active {
+  color: var(--text);
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.45);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.15);
+}
+
+.dlg-tab-panel.hidden {
+  display: none;
+}
+
+.import-asset-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.import-asset-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.import-asset-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  max-height: min(240px, 40vh);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+
+.import-asset-list:not(:empty) + .import-asset-empty {
+  display: none;
+}
+
+.import-asset-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.import-asset-item:last-child {
+  border-bottom: none;
+}
+
+.import-asset-thumb {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+}
+
+.import-asset-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.import-asset-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.import-asset-sub {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.import-asset-remove {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.import-asset-remove:hover {
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.12);
+}
+
 .form-error {
   margin: 0 0 12px;
   padding: 8px 10px;
@@ -2266,20 +2448,42 @@ dialog h3 {
 }
 
 dialog label {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   margin-bottom: 10px;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
 }
 
-dialog input {
+dialog input:not([type="checkbox"]):not([type="radio"]),
+dialog select {
   width: 100%;
-  margin-top: 4px;
-  padding: 8px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   color: var(--text);
   font: inherit;
+  font-size: 0.82rem;
+  box-sizing: border-box;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+dialog input:not([type="checkbox"]):not([type="radio"]):hover,
+dialog select:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  background-color: var(--bg-hover);
+}
+
+dialog input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+dialog select:focus-visible {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
 
 dialog menu {

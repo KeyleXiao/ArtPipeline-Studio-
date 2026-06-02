@@ -21,3 +21,9 @@ def get_config_manager() -> ConfigManager:
 def reload_config_manager() -> ConfigManager:
     get_config_manager.cache_clear()
     return get_config_manager()
+
+
+def sync_log_bus_from_config() -> None:
+    from backend.services.log_bus import log_bus
+
+    log_bus.configure(get_config_manager().log_dir())

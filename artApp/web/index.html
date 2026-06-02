@@ -297,6 +297,9 @@
             <label class="span2"><span data-i18n="form.projectRoot">游戏引擎项目根</span><input name="project_root" /></label>
             <label class="span2"><span data-i18n="form.artRoot">ArtPipeline 根</span><input name="art_pipeline_root" /></label>
             <button type="button" class="btn sm ghost span2" data-action="autodetect-paths" data-i18n="form.autodetectPaths">自动检测路径</button>
+            <label class="span2"><span data-i18n="form.logDir">运行日志目录</span><input name="log_dir" placeholder="" /></label>
+            <p class="muted sm span2" id="log-dir-hint"></p>
+            <button type="button" class="btn sm ghost span2" data-action="open-log-dir" data-i18n="form.openLogDir">打开目录</button>
             <label class="span2"><span data-i18n="form.comfyUrl">ComfyUI URL</span><input name="comfyui_url" /></label>
             <p class="muted sm span2" data-i18n="form.comfyUrlHint">用于连接 ComfyUI、拉取 checkpoint 列表与提交生图任务；无需在全局单独配置 checkpoint</p>
             <label><span data-i18n="form.steps">Steps</span><input name="steps" type="number" /></label>
@@ -362,7 +365,7 @@
   </div>
 
   <dialog id="dlg-new-cat">
-    <form id="form-new-cat" novalidate>
+    <form id="form-new-cat" class="dialog-form" novalidate>
       <h3 data-i18n="dlg.newCategory">新建分类</h3>
       <label><span data-i18n="dlg.categoryName">名称</span><input name="label" required /></label>
       <label><span data-i18n="dlg.categoryId">ID（可选）</span><input name="id" data-i18n-placeholder="dlg.categoryIdPlaceholder" placeholder="英文" /></label>
@@ -378,17 +381,33 @@
     </form>
   </dialog>
 
-  <dialog id="dlg-new-asset">
-    <form id="form-new-asset" novalidate>
+  <dialog id="dlg-new-asset" class="dlg-new-asset">
+    <form id="form-new-asset" class="dialog-form" novalidate>
       <h3 data-i18n="dlg.newAsset">新建资源</h3>
+      <div class="dlg-tabs" role="tablist" aria-label="New asset mode">
+        <button type="button" class="dlg-tab active" data-dlg-tab="manual" role="tab" aria-selected="true" data-i18n="dlg.newAssetTabManual">手动创建</button>
+        <button type="button" class="dlg-tab" data-dlg-tab="import" role="tab" aria-selected="false" data-i18n="dlg.newAssetTabImport">导入外部资源</button>
+      </div>
       <p class="form-error" id="new-asset-error" hidden role="alert"></p>
-      <label><span data-i18n="dlg.assetFilename">文件名</span><input name="filename" required placeholder="icon_名称.png" /></label>
-      <label><span data-i18n="dlg.assetSize">尺寸</span><input name="size" type="number" value="512" min="32" max="4096" step="1" /></label>
-      <label><span data-i18n="dlg.assetSubject">说明</span><input name="subject" /></label>
-      <p class="muted sm" data-i18n="dlg.newAssetHint">仅创建资源配置，不会连接 ComfyUI 生图；可在填写提示词后手动生成</p>
+      <div class="dlg-tab-panel" data-dlg-panel="manual" role="tabpanel">
+        <label><span data-i18n="dlg.assetFilename">文件名</span><input name="filename" required placeholder="icon_名称.png" /></label>
+        <label><span data-i18n="dlg.assetSize">尺寸</span><input name="size" type="number" value="512" min="32" max="4096" step="1" /></label>
+        <label><span data-i18n="dlg.assetSubject">说明</span><input name="subject" /></label>
+        <p class="muted sm" data-i18n="dlg.newAssetHint">仅创建资源配置，不会连接 ComfyUI 生图；填写提示词后可手动生成</p>
+      </div>
+      <div class="dlg-tab-panel hidden" data-dlg-panel="import" role="tabpanel" hidden>
+        <input type="file" id="import-asset-files" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif" multiple hidden />
+        <div class="import-asset-toolbar">
+          <button type="button" class="btn ghost sm" id="import-asset-pick" data-i18n="dlg.importPick">选择图片…</button>
+          <span class="muted sm import-asset-count" id="import-asset-count"></span>
+        </div>
+        <ul class="import-asset-list" id="import-asset-list" aria-live="polite"></ul>
+        <p class="import-asset-empty muted sm" id="import-asset-empty" data-i18n="dlg.importEmpty">尚未选择文件；支持 PNG / JPG / WebP，将按文件名创建资源并写入 inbox</p>
+        <p class="muted sm" data-i18n="dlg.importHint">导入的图片会转为 PNG 写入 source 与 inbox；重名文件会跳过</p>
+      </div>
       <menu>
         <button type="button" class="btn ghost" data-dismiss data-i18n="dlg.cancel">取消</button>
-        <button type="submit" class="btn primary" data-i18n="dlg.create">创建</button>
+        <button type="submit" class="btn primary" id="new-asset-submit" data-i18n="dlg.create">创建</button>
       </menu>
     </form>
   </dialog>
