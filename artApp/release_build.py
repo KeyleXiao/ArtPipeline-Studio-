@@ -21,6 +21,8 @@ SPEC_DIR = RELEASE_DIR
 APP_NAME = "ArtPipeline Studio"
 ENTRY = ARTAPP_ROOT / "run_app.py"
 ICON = TOOLS_DIR / "assets" / "app_icon.png"
+if not ICON.is_file():
+    ICON = ARTAPP_ROOT / "web" / "assets" / "app_icon.png"
 
 
 def venv_python_path() -> Path:
@@ -68,11 +70,20 @@ def _add_data(src: Path, dest: str) -> str:
     return f"{src}{_sep()}{dest}"
 
 
-def _ensure_pyinstaller() -> None:
-    try:
-        import PyInstaller  # noqa: F401
-    except ImportError as exc:
-        raise SystemExit("请先安装: pip install pyinstaller") from exc
+def _ensure_pyinstaller(python: str | None = None) -> None:
+    """确认 PyInstaller 可用（优先检查构建 venv 的 Python）。"""
+    py = python or build_python()
+    result = subprocess.run(
+        [py, "-c", "import PyInstaller"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise SystemExit(
+            "请先安装 PyInstaller：\n"
+            f"  {py} -m pip install -r requirements-build.txt\n"
+            "或运行: python build_release_win.py --setup-venv"
+        )
 
 
 def hidden_imports() -> list[str]:
@@ -155,13 +166,12 @@ def pyinstaller_cmd(*, python: str, target: str) -> list[str]:
 
 
 def build_pyinstaller(*, clean: bool = True, python: str | None = None, target: str) -> Path:
-    _ensure_pyinstaller()
+    py = python or build_python()
+    _ensure_pyinstaller(py)
     if not TOOLS_DIR.is_dir():
         raise SystemExit(f"缺少 tools 目录: {TOOLS_DIR}")
     if not ENTRY.is_file():
         raise SystemExit(f"缺少入口: {ENTRY}")
-
-    py = python or build_python()
 
     RELEASE_DIR.mkdir(parents=True, exist_ok=True)
     if clean:
