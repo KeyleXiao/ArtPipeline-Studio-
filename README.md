@@ -34,6 +34,7 @@ ComfyUI 生成 → source 原图 → inbox 后处理 → 游戏引擎目录
 | 能力 | 说明 |
 |------|------|
 | 分类与资源库 | 多分类、搜索、新建 / 重命名 / 删除；**S·in·U** 三态路径追踪 |
+| Checkpoint 分层 | 分类级默认模型；单资源可在基本信息覆盖；ComfyUI URL 拉取模型列表 |
 | ComfyUI 批量 | 生成选中 / 本类 / 生成并导出；浮动进度，可停止 |
 | img2img 重绘 | 基于 inbox 或 source 继续生成，denoise 可调 |
 | 提示词与工作流 | 每资源 subject、正/负向 prompt、独立 workflow JSON |
@@ -117,9 +118,12 @@ cp ../tools/pipeline_config.example.json ../tools/pipeline_config.json
 
 在应用 **「全局设置」** 中填写：
 
+- **ComfyUI URL**（默认 `http://127.0.0.1:8188`，用于拉取 checkpoint 列表与提交生图）
 - **ArtPipeline 根目录**（含 `source/`、`inbox/`、`workflows/` 的目录）
 - **游戏项目根目录**
 - **DeepSeek API Key**（使用 AI 助手时）
+
+在 **「分类设置」** 中为每个分类选择 **Checkpoint**（生图模型）；单个资源可在 **「基本信息」** 中覆盖为独立模型（留空则跟随分类）。
 
 > `pipeline_config.json` 含个人路径与密钥，**勿提交 Git**（已在 `.gitignore`）。
 
@@ -247,3 +251,86 @@ python3 sync_to_github.py --dest ~/ArtPipeline-Studio
 ---
 
 **KEYLE · ArtPipeline Studio** — 游戏美术 AI 流水线
+
+---
+
+<!-- ArtPipeline 项目说明 -->
+
+# 美术资源流水线（ArtPipeline）
+
+项目根目录下的 **AI 美术工作区**：生成原图、待入库文件、文档与 ComfyUI 工作流集中放这里，再部署到 `Assets/Resources/`。
+
+## 目录一览
+
+```
+ArtPipeline/
+├── README.md                 # 本文件
+├── docs/                     # 规范与操作说明
+├── manifest/                 # 资源清单（文件名、尺寸、prompt）
+├── source/                   # ComfyUI 原始输出（按分类，可多版本）
+│   ├── roles/
+│   ├── items/
+│   └── ui/
+├── inbox/                    # 选定待入库（文件名必须与 Unity 一致）
+│   ├── roles/
+│   ├── items/
+│   └── ui/
+└── comfyui/                  # ComfyUI API 工作流
+    └── workflows/
+```
+
+## 推荐模型
+
+| 用途 | Checkpoint | 说明 |
+|------|------------|------|
+| 角色头像、道具插画 | **animagineXL_v3.safetensors** | 二次元卡牌风，与本项目 HUD 气质接近 |
+
+详见 [docs/animagine-xl.md](docs/animagine-xl.md)。
+
+## 一键生成（脚本 / GUI）
+
+**推荐 GUI：**
+
+```bash
+python3 ArtPipeline/tools/artTool_ui.py
+```
+
+**命令行：**
+
+```bash
+python3 ArtPipeline/tools/cli.py --list
+python3 ArtPipeline/tools/cli.py --category roles --to-inbox --deploy
+# 旧路径仍可用
+python3 Assets/Scripts/Tools/generate_icons_comfyui.py --kind role --to-inbox --deploy
+```
+
+配置与维护见 [tools/README.md](tools/README.md)、[tools/维护指南.md](tools/维护指南.md)。
+
+## 工作流（ComfyUI → Unity）
+
+1. 在 ComfyUI 用 **animagineXL_v3** 按清单生成，保存到 `source/<分类>/`（可保留多版 `role_warrior_v2.png` 等）。
+2. 满意的一张 **复制/重命名** 为清单中的正式文件名，放入 `inbox/<分类>/`。
+3. 入库 Unity Resources（直接复制，无裁切/抠图后处理）：
+
+```bash
+python3 Assets/Scripts/Tools/generate_icons_comfyui.py --kind role --to-inbox --deploy
+# 或生成全部并入库
+python3 Assets/Scripts/Tools/generate_icons_comfyui.py --all --to-inbox --deploy
+```
+
+旧版后处理脚本（裁切、去背景等）已移至项目根 `DeprecatedScripts/`。
+
+## 与代码的对应关系
+
+| inbox 路径 | Unity 目标 | 加载 |
+|------------|------------|------|
+| `inbox/roles/role_*.png` | `Assets/Resources/UI/Icons/Roles/` | `GameUiIconResources.GetRoleSprite` |
+| `inbox/items/item_*.png` | `Assets/Resources/UI/Icons/Items/` | `GetItemSprite` |
+| `inbox/ui/hp_heart_*.png` 等 | `Assets/Resources/UI/Icons/UI/` | `HpHeartFull` 等 |
+
+## 关联文档
+
+- [docs/目录说明.md](docs/目录说明.md)
+- [docs/animagine-xl.md](docs/animagine-xl.md)
+- `Assets/Scripts/表现优化文档.md` §7–§9（美术方向与分辨率）
+- `Assets/Resources/UI/Icons/README.md`（Unity 导入设置）

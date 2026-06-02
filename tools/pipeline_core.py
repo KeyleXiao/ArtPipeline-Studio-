@@ -105,7 +105,13 @@ class PipelineCore:
         url = d.get("comfyui_url", "http://127.0.0.1:8188")
         client = ComfyUiClient(url)
         ckpts = client.list_checkpoints()
-        requested = self.config.checkpoint_for_category(asset.category)
+        requested = self.config.checkpoint_for_asset(asset)
+        if not requested.strip():
+            return GenerateResult(
+                asset.id,
+                False,
+                "未配置 checkpoint：请在「分类设置」或「基本信息」中选择模型",
+            )
         ckpt = resolve_checkpoint(requested, ckpts)
         lora_name, lora_strength = self.config.lora_for_category(asset.category)
         steps = int(cat_overrides.get("steps", d.get("steps", 35)))

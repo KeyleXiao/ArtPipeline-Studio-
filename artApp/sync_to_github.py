@@ -21,12 +21,20 @@ from pathlib import Path
 
 ARTAPP_ROOT = Path(__file__).resolve().parent
 PIPELINE_ROOT = ARTAPP_ROOT.parent
+ARTAPP_SITE = PIPELINE_ROOT / "artAppSite"
 DEFAULT_DEST = Path.home() / "ArtPipeline-Studio"
+
+# 官网截图 → GitHub docs/images/（英文名便于 README 引用）
+SCREENSHOT_MAP = {
+    "主界面功能预览.png": "main-workbench.png",
+    "提示词与工作流截图.png": "prompts-workflow.png",
+    "生成的图片可以继续重新绘制截图.png": "img2img-redraw.png",
+    "后处理功能.png": "postprocess-editor.png",
+}
 
 # 同步的顶层条目（相对 ArtPipeline 根）
 SYNC_TOP_LEVEL = (
     "artApp",
-    "artAppSite",
     "tools",
     "docs",
     "manifest",
@@ -122,6 +130,33 @@ def rsync_copy(src: Path, dest: Path, *, dry_run: bool) -> None:
     subprocess.run(cmd, check=True)
 
 
+def sync_screenshots(dest: Path, *, dry_run: bool) -> None:
+    """从 artAppSite 复制功能截图到 docs/images/。"""
+    src_dir = ARTAPP_SITE / "assets" / "screenshots"
+    if not src_dir.is_dir():
+        # 兼容截图仍在 artAppSite 根目录
+        src_dir = ARTAPP_SITE
+    dest_dir = dest / "docs" / "images"
+    copied = 0
+    for src_name, dest_name in SCREENSHOT_MAP.items():
+        src = src_dir / src_name
+        if not src.is_file():
+            src = ARTAPP_SITE / src_name
+        if not src.is_file():
+            continue
+        if dry_run:
+            print(f"  [dry-run] 截图 {src_name} → docs/images/{dest_name}")
+            copied += 1
+            continue
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest_dir / dest_name)
+        copied += 1
+    if copied:
+        print(f"  ✓ 已同步 {copied} 张功能截图 → docs/images/")
+    elif not dry_run:
+        print("  ⚠ 未找到 artAppSite 截图，跳过 docs/images/")
+
+
 def post_process(dest: Path, *, dry_run: bool) -> None:
     cfg = dest / "tools" / "pipeline_config.json"
     example = dest / "tools" / "pipeline_config.example.json"
@@ -142,8 +177,18 @@ def post_process(dest: Path, *, dry_run: bool) -> None:
         shutil.rmtree(stray_release)
         print("  ✓ 已删除 artApp/release/")
 
+    stray_site = dest / "artAppSite"
+    if stray_site.exists():
+        if stray_site.is_dir():
+            shutil.rmtree(stray_site)
+        else:
+            stray_site.unlink()
+        print("  ✓ 已删除 artAppSite/（官网单独发布，不入库）")
+
     (dest / ".gitignore").write_text(GITHUB_GITIGNORE, encoding="utf-8")
     print("  ✓ 已写入 .gitignore")
+
+    sync_screenshots(dest, dry_run=dry_run)
 
 
 def preserve_repo_meta(dest: Path, backup: Path) -> None:

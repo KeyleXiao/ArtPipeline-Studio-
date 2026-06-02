@@ -50,7 +50,9 @@ def _asset_dict(a: Any, *, full: bool = False) -> dict[str, Any]:
         config = get_config_manager()
         src, _inbox, _unity = config.resolve_paths(a)
         d["source_path"] = str(src)
-        d["checkpoint"] = config.checkpoint_for_category(a.category)
+        d["checkpoint"] = getattr(a, "checkpoint", "") or ""
+        d["checkpoint_effective"] = config.checkpoint_for_asset(a)
+        d["category_checkpoint"] = config.checkpoint_for_category(a.category)
         d["positive"] = a.positive
         d["negative"] = a.negative
         d["positive_g"] = a.positive_g
@@ -65,7 +67,7 @@ def _category_dict(c: Any, *, full: bool = False) -> dict[str, Any]:
         "id": c.id,
         "label": c.label,
         "checkpoint": ckpt,
-        "checkpoint_short": Path(ckpt).name[:24] if ckpt else "默认",
+        "checkpoint_short": Path(ckpt).name[:24] if ckpt else "未设置",
         "source": c.source,
         "inbox": c.inbox,
         "unity": c.unity,
@@ -139,6 +141,7 @@ class AssetUpdateBody(BaseModel):
     subject: str | None = None
     enabled: bool | None = None
     remove_bg_mode: str | None = None
+    checkpoint: str | None = None
     positive: str | None = None
     negative: str | None = None
     positive_g: str | None = None
@@ -601,6 +604,8 @@ def update_asset(asset_id: str, body: AssetUpdateBody) -> dict[str, Any]:
         asset.enabled = body.enabled
     if body.remove_bg_mode is not None:
         asset.remove_bg_mode = body.remove_bg_mode
+    if body.checkpoint is not None:
+        asset.checkpoint = body.checkpoint.strip()
     if body.positive is not None:
         asset.positive = body.positive
     if body.negative is not None:
@@ -1502,6 +1507,9 @@ def _apply_ai_basic_updates(config: Any, asset: Any, updates: dict[str, Any], ap
             raise HTTPException(400, "remove_bg_mode 须为 inherit / remove / keep")
         asset.remove_bg_mode = mode
         applied.append("remove_bg_mode")
+    if _ai_update_present(updates.get("checkpoint")):
+        asset.checkpoint = str(updates["checkpoint"]).strip()
+        applied.append("checkpoint")
     if _ai_update_present(updates.get("subject")):
         asset.subject = str(updates["subject"]).strip()
         applied.append("subject")
@@ -1594,7 +1602,7 @@ def ai_chat(body: AiChatBody) -> dict[str, Any]:
         "refine": "【任务：在现有提示词基础上按用户要求微调，保留未提及的合理内容】\n",
         "workflow": "【任务：处理 ComfyUI 工作流 JSON；仅用户明确要求改结构时才返回 workflow】\n",
         "basic": (
-            "【任务：填写或修改资源「基本信息」页（subject、filename、分类、宽×高、seed、启用、剔除背景）；"
+            "【任务：填写或修改资源「基本信息」页（subject、filename、分类、宽×高、seed、启用、剔除背景、checkpoint）；"
             "updates 中未改字段设为 null；不要改 prompt/workflow/category_settings】\n"
         ),
     }.get(mode, "")
@@ -1629,6 +1637,8 @@ def ai_chat(body: AiChatBody) -> dict[str, Any]:
         category_alpha_matte=cat.alpha_matte if cat else "",
         category_positive_common=cat.positive_common if cat else "",
         category_negative_common=cat.negative_common if cat else "",
+        asset_checkpoint=getattr(asset, "checkpoint", "") or "",
+        effective_checkpoint=config.checkpoint_for_asset(asset),
         gen_mode=getattr(asset, "gen_mode", "txt2img"),
         ref_image=getattr(asset, "ref_image", ""),
         img2img_denoise=float(getattr(asset, "img2img_denoise", 0.65)),

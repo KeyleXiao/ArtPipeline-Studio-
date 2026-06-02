@@ -97,7 +97,7 @@ class Category:
     inbox: str
     unity: str
     default_workflow: str = "workflows/_default_sdxl_api.json"
-    checkpoint: str = ""  # 空则使用 defaults.checkpoint
+    checkpoint: str = ""  # 分类级 checkpoint；空表示未设置
     lora: str = ""
     lora_strength: float = 0.7
     positive_common: str = ""
@@ -121,6 +121,7 @@ class Asset:
     enabled: bool = True
     gen_scale: float = 2.0
     seed: str = ""
+    checkpoint: str = ""  # 空则继承分类 checkpoint
     remove_bg_mode: str = REMOVE_BG_INHERIT
     gen_mode: str = GEN_MODE_TXT2IMG
     ref_image: str = ""
@@ -296,6 +297,7 @@ class ConfigManager:
                     )
                 ),
                 seed=str(raw.get("seed", "")),
+                checkpoint=str(raw.get("checkpoint", "")),
                 remove_bg_mode=parse_remove_bg_mode(raw),
                 gen_mode=parse_gen_mode(raw),
                 ref_image=str(raw.get("ref_image", "")),
@@ -437,6 +439,7 @@ class ConfigManager:
             "enabled": asset.enabled,
             "gen_scale": asset.gen_scale,
             "seed": asset.seed,
+            "checkpoint": asset.checkpoint,
             "remove_bg_mode": asset.remove_bg_mode,
             "gen_mode": asset.gen_mode,
             "ref_image": asset.ref_image,
@@ -469,7 +472,12 @@ class ConfigManager:
         cat = self.category_by_id(cat_id)
         if cat and cat.checkpoint.strip():
             return cat.checkpoint.strip()
-        return str(self.defaults.get("checkpoint", ""))
+        return ""
+
+    def checkpoint_for_asset(self, asset: Asset) -> str:
+        if asset.checkpoint.strip():
+            return asset.checkpoint.strip()
+        return self.checkpoint_for_category(asset.category)
 
     def lora_for_category(self, cat_id: str) -> tuple[str, float]:
         cat = self.category_by_id(cat_id)

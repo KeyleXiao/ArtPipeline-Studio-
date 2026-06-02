@@ -188,6 +188,7 @@
             <label><span data-i18n="form.height">高度</span><input name="height" type="number" /></label>
             <label><span data-i18n="form.seed">Seed</span><input name="seed" data-i18n-placeholder="form.seedPlaceholder" placeholder="留空=全局" /></label>
             <label class="span2"><span data-i18n="form.subject">说明</span><input name="subject" /></label>
+            <label class="span2"><span data-i18n="form.checkpoint">Checkpoint</span><select name="checkpoint" id="asset-ckpt"></select></label>
             <label class="check check-modern span2"><input name="enabled" type="checkbox" /><span class="check-ui"></span><span class="check-text" data-i18n="form.enabled">启用（参与批量生成）</span></label>
             <fieldset class="span2 radio-field">
               <legend data-i18n="form.removeBg">剔除背景</legend>
@@ -328,13 +329,13 @@
             <label class="span2"><span data-i18n="form.projectRoot">游戏引擎项目根</span><input name="project_root" /></label>
             <label class="span2"><span data-i18n="form.artRoot">ArtPipeline 根</span><input name="art_pipeline_root" /></label>
             <button type="button" class="btn sm ghost span2" data-action="autodetect-paths" data-i18n="form.autodetectPaths">自动检测路径</button>
-            <label><span data-i18n="form.comfyUrl">ComfyUI URL</span><input name="comfyui_url" /></label>
+            <label class="span2"><span data-i18n="form.comfyUrl">ComfyUI URL</span><input name="comfyui_url" /></label>
+            <p class="muted sm span2" data-i18n="form.comfyUrlHint">用于连接 ComfyUI、拉取 checkpoint 列表与提交生图任务；无需在全局单独配置 checkpoint</p>
             <label><span data-i18n="form.steps">Steps</span><input name="steps" type="number" /></label>
             <label><span data-i18n="form.cfg">CFG</span><input name="cfg" type="number" step="0.1" /></label>
             <label><span data-i18n="form.sampler">Sampler</span><input name="sampler" /></label>
             <label><span data-i18n="form.scheduler">Scheduler</span><input name="scheduler" /></label>
             <label><span data-i18n="form.globalSeed">全局 Seed</span><input name="seed" /></label>
-            <label><span data-i18n="form.globalCheckpoint">Checkpoint</span><select name="checkpoint" id="global-ckpt"></select></label>
             <label class="span2"><span data-i18n="form.deepseekKey">DeepSeek API Key</span><input name="deepseek_api_key" type="password" /></label>
             <label><span data-i18n="form.deepseekModel">DeepSeek 模型</span><select name="deepseek_model">
               <option value="deepseek-v4-flash">deepseek-v4-flash</option>

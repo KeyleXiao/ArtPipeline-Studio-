@@ -174,16 +174,16 @@
         },
         "layers": [
           {
-            "id": "32daa912",
+            "id": "5cf35eec",
             "name": "主体",
             "type": "image",
             "visible": true,
             "locked": false,
             "opacity": 1.0,
             "transform": {
-              "offset_x": 5.596615649608012,
-              "offset_y": 49.25021771655037,
-              "scale": 1.19,
+              "offset_x": 0.0,
+              "offset_y": 0.0,
+              "scale": 1.0,
               "anchor": "center"
             },
             "source": "$asset",

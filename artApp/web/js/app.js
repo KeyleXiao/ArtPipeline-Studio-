@@ -234,10 +234,10 @@ function renderAssets() {
 }
 
 function fillCheckpointSelects() {
-  const opts = (sel) => {
+  const fill = (sel, emptyLabel) => {
     if (!sel) return;
     const cur = sel.value;
-    sel.innerHTML = `<option value="">${esc(t("form.globalDefault"))}</option>`;
+    sel.innerHTML = `<option value="">${esc(emptyLabel)}</option>`;
     for (const ck of state.checkpoints) {
       const o = document.createElement("option");
       o.value = ck;
@@ -246,8 +246,8 @@ function fillCheckpointSelects() {
     }
     if (cur) sel.value = cur;
   };
-  opts($("#cat-ckpt"));
-  opts($("#global-ckpt"));
+  fill($("#asset-ckpt"), t("form.checkpointInherit"));
+  fill($("#cat-ckpt"), t("form.checkpointUnset"));
 }
 
 async function fillNewCatCheckpointSelect() {
@@ -265,13 +265,13 @@ async function fillNewCatCheckpointSelect() {
   }
   const defaultOpt = document.createElement("option");
   defaultOpt.value = "";
-  defaultOpt.textContent = t("form.globalDefault");
+  defaultOpt.textContent = t("form.checkpointUnset");
   sel.appendChild(defaultOpt);
   if (!state.checkpoints.length) {
     if (preferred) {
       const hint = document.createElement("option");
       hint.value = preferred;
-      hint.textContent = `${preferred.split("/").pop()} (${t("dlg.checkpointFromSettings")})`;
+      hint.textContent = `${preferred.split("/").pop()} (${t("dlg.checkpointOfflineHint")})`;
       sel.appendChild(hint);
       sel.value = preferred;
     }
@@ -335,6 +335,7 @@ async function loadBasicForm() {
   form.querySelectorAll('input[name="remove_bg_mode"]').forEach((r) => {
     r.checked = r.value === mode;
   });
+  if ($("#asset-ckpt")) $("#asset-ckpt").value = data.checkpoint || "";
 }
 
 async function loadCategoryForm() {
@@ -476,7 +477,6 @@ async function loadSettingsForm() {
     "sampler",
     "scheduler",
     "seed",
-    "checkpoint",
     "deepseek_api_key",
     "deepseek_model",
   ]) {
@@ -1719,6 +1719,7 @@ async function saveBasic(e) {
       subject: form.subject.value.trim(),
       enabled: form.enabled.checked,
       remove_bg_mode: form.querySelector('input[name="remove_bg_mode"]:checked')?.value || "inherit",
+      checkpoint: $("#asset-ckpt")?.value || "",
     };
     state.assetFull = await API.put(`/api/assets/${state.assetId}`, body);
     toast(t("toast.saved"));

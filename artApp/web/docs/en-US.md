@@ -68,6 +68,18 @@ Preview shows **post-process composite** when configured; otherwise the inbox/so
 
 Modes: write prompts, refine, workflow, free chat. Configure DeepSeek API Key in **Settings**. AI uses asset category, size, and existing prompts; some modes write back to config.
 
+### Checkpoint configuration
+
+Models are configured at **category → asset** level. **Settings** only needs **ComfyUI URL** to list checkpoints:
+
+| Location | Purpose | When empty |
+|----------|---------|------------|
+| **Category** | Default checkpoint for assets in category | Not set — generation will prompt you |
+| **Basic info** | Per-asset override | Inherit from category |
+| **Settings** | ComfyUI URL, sampler params, etc. | — |
+
+When creating a category, pick a checkpoint. If ComfyUI is offline, type a known model filename.
+
 ### Post-process editor
 
 - Subject layer `$asset` binds to **inbox** only
@@ -83,11 +95,12 @@ source is the AI “master”. Post-process only on **inbox**. Use **Restore fro
 
 ### 2. Organize by category
 
-Each category has its own paths, checkpoint, and shared prompt prefixes. Use separate categories for items, skills, avatars, etc.
+Each category has its own paths, checkpoint, and shared prompt prefixes. Use separate categories for items, skills, avatars, etc. Override checkpoint per asset under **Basic info** when needed.
 
 ### 3. Pre-flight checks
 
 - ComfyUI pill shows **online**
+- **Category or asset has a checkpoint configured**
 - Assets enabled and workflow JSON valid
 - Prompts and dimensions match category rules
 
@@ -112,6 +125,7 @@ Each category has its own paths, checkpoint, and shared prompt prefixes. Use sep
 | Empty preview | Ensure source/inbox exists; refresh status |
 | Engine out of date (red U) | Re-export after inbox/post-process changes |
 | ComfyUI offline | Check URL, firewall, ComfyUI process |
+| No checkpoint configured | Set model under **Category**, or per asset under **Basic info** |
 | Export 405 | Restart `run_dev.py` |
 
 ---

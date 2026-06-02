@@ -41,9 +41,9 @@ ArtPipeline/tools/
 
 | 区块 | 作用 |
 |------|------|
-| `defaults` | ComfyUI URL、checkpoint、steps、cfg、sampler |
-| `categories[]` | 分类 ↔ `source/` / `inbox/` / Unity 路径映射 |
-| `assets[]` | 每张图的文件名、尺寸、正负 prompt、工作流路径 |
+| `defaults` | ComfyUI URL、采样参数（steps/cfg/sampler）；`checkpoint` 仅作新建分类时的预选，不参与生图兜底 |
+| `categories[]` | 分类 ↔ `source/` / `inbox/` / Unity 路径映射；**checkpoint** 为分类默认模型 |
+| `assets[]` | 每张图的文件名、尺寸、正负 prompt、工作流路径；可选 **checkpoint** 覆盖分类 |
 
 **新增分类** = 新增 `source/<id>/`、`inbox/<id>/` 文件夹 + 配置项。  
 **新增资源** = 在 UI 或 JSON 中添加 asset，并创建 `workflows/assets/<id>.json`。
