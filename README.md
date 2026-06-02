@@ -2,9 +2,8 @@
 
 **ComfyUI 驱动的游戏美术流水线** — 从 AI 出图到 Unity 资源，一条链路搞定。
 
-[![License](https://img.shields.io/github/license/KeyleXiao/ArtPipeline-Studio-)](LICENSE)
 [![Build Release](https://github.com/KeyleXiao/ArtPipeline-Studio-/actions/workflows/build-release.yml/badge.svg?branch=main)](https://github.com/KeyleXiao/ArtPipeline-Studio-/actions/workflows/build-release.yml)
-[![Latest Release](https://img.shields.io/github/v/release/KeyleXiao/ArtPipeline-Studio-?display_name=tag&sort=semver&label=desktop)](https://github.com/KeyleXiao/ArtPipeline-Studio-/releases/latest)
+[MIT License](LICENSE) · [Desktop Latest Release](https://github.com/KeyleXiao/ArtPipeline-Studio-/releases/latest)
 
 > 产品主页：[art.vrast.cn](https://art.vrast.cn) · 使用文档：[art.vrast.cn/docs.html](https://art.vrast.cn/docs.html)
 
@@ -144,6 +143,10 @@ cp ../tools/pipeline_config.example.json ../tools/pipeline_config.json
 
 > `pipeline_config.json` 含个人路径与密钥，**勿提交 Git**（已在 `.gitignore`）。
 
+配置文件与工作流、日志、桌面版用户目录的完整说明见 **[docs/配置文件说明.md](docs/配置文件说明.md)**。
+
+**第一次使用？** 跟随 **[docs/快速入门案例.md](docs/快速入门案例.md)** 用约 15 分钟走完「新建角色头像 → 出图 → 导出 Unity」完整案例。
+
 ### 3. 启动 Web 版
 
 ```bash
@@ -160,6 +163,7 @@ python run_dev.py
 4. **导出本类** 或 **生成并导出** 到 Unity  
 5. 在引擎内验证资源  
 
+逐步图文案例见 **[docs/快速入门案例.md](docs/快速入门案例.md)**。  
 更完整的操作说明见 [在线文档](https://art.vrast.cn/docs.html) 或仓库内 `artApp/web/docs/zh-CN.md`。
 
 ---
@@ -179,6 +183,9 @@ ArtPipeline-Studio/
 │   ├── config_manager.py
 │   └── workflows/          # 工作流模板与每资源 JSON
 ├── docs/                   # 规范与模型说明（animagine-xl 等）
+│   ├── 快速入门案例.md     # 15 分钟引导：出图 → 导出 Unity
+│   ├── 配置文件说明.md     # 配置 / 工作流 / 日志存储位置
+│   ├── 目录说明.md         # source / inbox 目录约定
 │   └── images/             # README / 官网用功能截图
 ├── comfyui/                # ComfyUI 相关参考
 ├── manifest/               # 资源清单
@@ -191,7 +198,7 @@ ArtPipeline-Studio/
 your-art-workspace/
 ├── source/                 # ComfyUI 原图（只读）
 ├── inbox/                  # 后处理与合成输出
-└── workflows/assets/       # 各资源工作流副本
+└── tools/workflows/assets/ # 各资源工作流副本（相对 ArtPipeline 根）
 ```
 
 ---

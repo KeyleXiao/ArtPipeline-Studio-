@@ -175,6 +175,20 @@ def seed_matte_to_alpha(
     return Image.fromarray(out, mode="RGBA")
 
 
+def stroke_matte_to_alpha(
+    im: Image.Image,
+    points: list[tuple[int, int]],
+    *,
+    color_tol: float = 34.0,
+    step_tol: float = 16.0,
+) -> Image.Image:
+    """沿笔画多点连续泛洪剔除（橡皮擦式点选）。"""
+    out = im.convert("RGBA")
+    for sx, sy in points:
+        out = seed_matte_to_alpha(out, sx, sy, color_tol=color_tol, step_tol=step_tol)
+    return out
+
+
 def apply_alpha_matte_png(data: bytes, *, mode: str = "border") -> bytes:
     if mode == "none":
         return data

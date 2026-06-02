@@ -202,16 +202,24 @@ class PipelineCore:
                 _log(log, f"  alpha 抠底跳过: {exc}")
 
         src_path, inbox_path, _ = self.config.resolve_paths(asset)
-        src_path.parent.mkdir(parents=True, exist_ok=True)
-        src_path.write_bytes(data)
-        _log(log, f"  source → {self.config.rel_to_project(src_path)}")
-
-        if to_inbox:
+        if gen_mode == GEN_MODE_REDRAW:
             inbox_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_path, inbox_path)
-            _log(log, f"  inbox  → {self.config.rel_to_project(inbox_path)}")
+            inbox_path.write_bytes(data)
+            _log(
+                log,
+                f"  inbox  → {self.config.rel_to_project(inbox_path)} (重绘图，source 未修改)",
+            )
+        else:
+            src_path.parent.mkdir(parents=True, exist_ok=True)
+            src_path.write_bytes(data)
+            _log(log, f"  source → {self.config.rel_to_project(src_path)}")
 
-        return GenerateResult(asset.id, True, "ok", src_path)
+            if to_inbox:
+                inbox_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_path, inbox_path)
+                _log(log, f"  inbox  → {self.config.rel_to_project(inbox_path)}")
+
+        return GenerateResult(asset.id, True, "ok", src_path if gen_mode != GEN_MODE_REDRAW else inbox_path)
 
     def generate_many(
         self,

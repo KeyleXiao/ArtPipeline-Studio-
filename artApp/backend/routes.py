@@ -158,6 +158,7 @@ class LayerMatteBody(BaseModel):
     mode: str = "border"
     seed_x: int | None = None
     seed_y: int | None = None
+    seed_points: list[list[int]] | None = None
     color_tol: float = 34.0
     step_tol: float = 16.0
     feather: int = 0
@@ -758,10 +759,17 @@ def _import_asset_image(
     category: str,
     original_name: str,
     content: bytes,
+    gen_mode: str = "txt2img",
 ) -> Any:
     import io
 
     from PIL import Image
+
+    from config_manager import GEN_MODE_REDRAW, GEN_MODE_TXT2IMG, GEN_MODES
+
+    mode = (gen_mode or GEN_MODE_TXT2IMG).strip().lower()
+    if mode not in (GEN_MODE_TXT2IMG, GEN_MODE_REDRAW):
+        raise ValueError("gen_mode 须为 txt2img 或 redraw")
 
     if not content:
         raise ValueError("空文件")
@@ -783,20 +791,29 @@ def _import_asset_image(
         subject="",
         enabled=False,
     )
+    asset.gen_mode = mode
+    asset.ref_image_use_source = False
+
     buf = io.BytesIO()
     img.convert("RGBA").save(buf, format="PNG", optimize=True)
     png = buf.getvalue()
     src_path, inbox_path, _ = config.resolve_paths(asset)
-    src_path.parent.mkdir(parents=True, exist_ok=True)
     inbox_path.parent.mkdir(parents=True, exist_ok=True)
-    src_path.write_bytes(png)
-    inbox_path.write_bytes(png)
+    if mode == GEN_MODE_REDRAW:
+        inbox_path.write_bytes(png)
+    else:
+        src_path.parent.mkdir(parents=True, exist_ok=True)
+        src_path.write_bytes(png)
+        inbox_path.write_bytes(png)
+
+    config.update_asset(asset)
     return asset
 
 
 @router.post("/assets/import")
 async def import_assets(
     category: str = Form(...),
+    gen_mode: str = Form("txt2img"),
     files: list[UploadFile] = File(...),
 ) -> dict[str, Any]:
     if not category.strip():
@@ -818,6 +835,7 @@ async def import_assets(
                 category=category,
                 original_name=raw_name,
                 content=content,
+                gen_mode=gen_mode,
             )
             created.append(_asset_dict(asset, full=True))
         except ValueError as exc:
@@ -1246,10 +1264,20 @@ def postprocess_layer_matte(asset_id: str, body: LayerMatteBody) -> dict[str, An
         raise HTTPException(404, "图层图片不存在")
 
     mode = body.mode.strip().lower()
-    if mode not in ("border", "seed"):
-        raise HTTPException(400, "mode 须为 border 或 seed")
+    if mode not in ("border", "seed", "stroke"):
+        raise HTTPException(400, "mode 须为 border、seed 或 stroke")
     if mode == "seed" and (body.seed_x is None or body.seed_y is None):
         raise HTTPException(400, "seed 模式需要 seed_x / seed_y")
+    if mode == "stroke" and not body.seed_points:
+        raise HTTPException(400, "stroke 模式需要 seed_points")
+
+    seed_points: list[tuple[int, int]] | None = None
+    if mode == "stroke" and body.seed_points:
+        seed_points = []
+        for pt in body.seed_points:
+            if not isinstance(pt, (list, tuple)) or len(pt) != 2:
+                raise HTTPException(400, "seed_points 须为 [[x,y], ...]")
+            seed_points.append((int(pt[0]), int(pt[1])))
 
     try:
         result = apply_layer_matte(
@@ -1257,6 +1285,7 @@ def postprocess_layer_matte(asset_id: str, body: LayerMatteBody) -> dict[str, An
             mode=mode,
             seed_x=body.seed_x,
             seed_y=body.seed_y,
+            seed_points=seed_points,
             color_tol=float(body.color_tol),
             step_tol=float(body.step_tol),
             feather=int(body.feather),

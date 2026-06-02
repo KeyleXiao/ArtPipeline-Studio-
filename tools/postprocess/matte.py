@@ -7,7 +7,7 @@ import io
 from pathlib import Path
 from typing import Any
 
-from alpha_matte import border_matte_to_alpha, seed_matte_to_alpha
+from alpha_matte import border_matte_to_alpha, seed_matte_to_alpha, stroke_matte_to_alpha
 from postprocess.models import ASSET_SUBJECT_SOURCE, Layer, layer_image_source
 
 
@@ -35,6 +35,7 @@ def apply_layer_matte(
     mode: str,
     seed_x: int | None = None,
     seed_y: int | None = None,
+    seed_points: list[tuple[int, int]] | None = None,
     color_tol: float = 34.0,
     step_tol: float = 16.0,
     feather: int = 0,
@@ -58,6 +59,15 @@ def apply_layer_matte(
             rgba,
             int(seed_x),
             int(seed_y),
+            color_tol=color_tol,
+            step_tol=step_tol,
+        )
+    elif mode == "stroke":
+        if not seed_points:
+            raise ValueError("stroke 模式需要 seed_points")
+        out = stroke_matte_to_alpha(
+            rgba,
+            [(int(x), int(y)) for x, y in seed_points],
             color_tol=color_tol,
             step_tol=step_tol,
         )

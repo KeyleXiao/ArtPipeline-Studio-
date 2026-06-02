@@ -272,18 +272,24 @@ body.is-col-resizing * {
 }
 
 .panel-foot-assets {
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-wrap: nowrap;
+  gap: 8px;
   padding: 8px 10px 10px;
+  justify-content: space-between;
 }
 
-.panel-foot-assets .btn {
-  white-space: nowrap;
-  flex-shrink: 0;
+.panel-foot-icon-btn {
+  color: var(--text-muted);
+}
+
+.panel-foot-icon-btn:hover:not(:disabled) {
+  color: var(--text);
 }
 
 .panel-foot-assets #asset-count {
-  flex: 1 1 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
   font-size: 0.72rem;
   line-height: 1.3;
 }
@@ -2430,6 +2436,54 @@ dialog h3 {
   background: rgba(248, 113, 113, 0.12);
 }
 
+.dlg-new-asset .dlg-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.dlg-new-asset .dlg-footer menu {
+  margin: 0;
+  margin-left: auto;
+  padding: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.import-gen-mode {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.import-gen-mode.hidden {
+  display: none;
+}
+
+.import-gen-mode-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.import-gen-mode-seg {
+  flex-wrap: nowrap;
+}
+
+.import-gen-mode-seg .radio-seg-item {
+  min-width: 0;
+}
+
+.import-gen-mode-seg .radio-seg-label {
+  font-size: 0.72rem;
+  padding: 5px 10px;
+}
+
 .form-error {
   margin: 0 0 12px;
   padding: 8px 10px;
@@ -2838,6 +2892,7 @@ dialog menu {
 
 .pp-viewport.pp-matte-mode {
   cursor: crosshair;
+  touch-action: none;
 }
 
 .pp-viewport.pp-matte-mode::before {

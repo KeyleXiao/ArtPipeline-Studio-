@@ -764,12 +764,19 @@ class ConfigManager:
 
     def resolve_ref_image_path(self, asset: Asset) -> Path | None:
         mode = getattr(asset, "gen_mode", GEN_MODE_TXT2IMG) or GEN_MODE_TXT2IMG
+        src, inbox, _unity = self.resolve_paths(asset)
         if mode == GEN_MODE_REDRAW or getattr(asset, "ref_image_use_source", False):
-            src, _inbox, _unity = self.resolve_paths(asset)
             try:
-                return src.resolve() if src.is_file() else None
+                if src.is_file():
+                    return src.resolve()
             except OSError:
-                return None
+                pass
+            try:
+                if inbox.is_file():
+                    return inbox.resolve()
+            except OSError:
+                pass
+            return None
         raw = (asset.ref_image or "").strip()
         if not raw:
             return None

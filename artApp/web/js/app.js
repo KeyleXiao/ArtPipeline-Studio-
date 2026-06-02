@@ -435,6 +435,70 @@ function currentGenMode() {
   return document.querySelector('input[name="gen_mode"]:checked')?.value || "txt2img";
 }
 
+function currentImportGenMode() {
+  return document.querySelector('input[name="import_gen_mode"]:checked')?.value || "txt2img";
+}
+
+function genModePayloadFromForm() {
+  const mode = currentGenMode();
+  return {
+    gen_mode: mode,
+    ref_image:
+      mode === "img2img"
+        ? ($("#ref-image-path")?.value.trim() || "")
+        : (state.assetFull?.ref_image || "").trim(),
+    ref_image_use_source: false,
+    img2img_denoise: parseFloat($("#img2img-denoise")?.value) || 0.65,
+  };
+}
+
+function applyGenModeToPromptPanel(mode) {
+  const normalized = mode === "redraw" ? "redraw" : mode === "img2img" ? "img2img" : "txt2img";
+  $$('input[name="gen_mode"]').forEach((r) => {
+    r.checked = r.value === normalized;
+  });
+  updateGenModeUi();
+}
+
+function setImportGenMode(mode, { syncPrompt = true } = {}) {
+  const normalized = mode === "redraw" ? "redraw" : "txt2img";
+  $$('input[name="import_gen_mode"]').forEach((r) => {
+    r.checked = r.value === normalized;
+  });
+  updateImportHintText();
+  if (syncPrompt) applyGenModeToPromptPanel(normalized);
+}
+
+function updateImportGenModeBarVisibility() {
+  const bar = $("#import-gen-mode-bar");
+  if (!bar) return;
+  const show = newAssetDlgTab === "import";
+  bar.classList.toggle("hidden", !show);
+  bar.hidden = !show;
+}
+
+function updateImportHintText() {
+  const hint = $("#import-asset-hint");
+  if (!hint) return;
+  const key = currentImportGenMode() === "redraw" ? "dlg.importHintRedraw" : "dlg.importHint";
+  hint.dataset.i18n = key;
+  hint.textContent = t(key);
+}
+
+function onGenModePanelChange() {
+  updateGenModeUi();
+  const dlg = $("#dlg-new-asset");
+  if (dlg?.open && newAssetDlgTab === "import") {
+    const mode = currentGenMode();
+    setImportGenMode(mode === "redraw" ? "redraw" : "txt2img", { syncPrompt: false });
+  }
+}
+
+function onImportGenModeChange() {
+  updateImportHintText();
+  setImportGenMode(currentImportGenMode(), { syncPrompt: true });
+}
+
 function isImg2imgFamily(mode = currentGenMode()) {
   return mode === "img2img" || mode === "redraw";
 }
@@ -455,9 +519,11 @@ function updateGenModeUi() {
   if (mode === "redraw") {
     const pathEl = $("#redraw-source-path");
     const src = refImageSourcePath();
+    const inbox = state.paths?.inbox || state.assetFull?.inbox_path || "";
+    const display = src || inbox;
     if (pathEl) {
-      pathEl.textContent = src || t("preview.infoFileMissing");
-      pathEl.classList.toggle("is-missing", !src);
+      pathEl.textContent = display || t("preview.infoFileMissing");
+      pathEl.classList.toggle("is-missing", !display);
     }
   }
   if (hint) {
@@ -1969,16 +2035,9 @@ async function savePrompts(btn) {
   await withBtnBusy(btn || document.querySelector('[data-action="save-prompts"]'), async () => {
     const data = state.assetFull || {};
     const useSplit = ["items", "skills"].includes(data.category);
-    const mode = currentGenMode();
     const body = {
       negative: $("#negative-text").value,
-      gen_mode: mode,
-      ref_image:
-        mode === "img2img"
-          ? ($("#ref-image-path")?.value.trim() || "")
-          : (state.assetFull?.ref_image || "").trim(),
-      ref_image_use_source: false,
-      img2img_denoise: parseFloat($("#img2img-denoise")?.value) || 0.65,
+      ...genModePayloadFromForm(),
     };
     if (useSplit) {
       const g = $("#positive-g-text").value.trim();
@@ -2001,6 +2060,8 @@ async function saveWorkflow(btn) {
   if (!state.assetId) return;
   await withBtnBusy(btn || document.querySelector('[data-action="save-wf"]'), async () => {
     await API.put(`/api/assets/${state.assetId}/workflow`, { text: $("#workflow-text").value });
+    state.assetFull = await API.put(`/api/assets/${state.assetId}`, genModePayloadFromForm());
+    updateGenModeUi();
     toast(t("toast.workflowSaved"));
   }).catch((err) => {
     if (err) toast(err.message);
@@ -2643,6 +2704,12 @@ function bindCategoryContextMenu() {
   );
 }
 
+async function duplicateAsset(assetId) {
+  const a = await API.post(`/api/assets/${assetId}/duplicate`);
+  await loadAssetList();
+  await selectAsset(a.id);
+}
+
 function hideAssetCtxMenu() {
   assetCtxId = null;
   closeFloatingMenu($("#asset-ctx-menu"));
@@ -2698,6 +2765,7 @@ function bindAssetContextMenu() {
       if (id !== state.assetId) await selectAsset(id);
       await runExport([id], { emptyToastKey: "toast.selectAsset" });
     } else if (act === "rename") await renameAssetDialog(id);
+    else if (act === "duplicate") await duplicateAsset(id).catch((err) => err && toast(err.message));
     else if (act === "postprocess") openPostprocess(id);
     else if (act === "open-source") await openAssetFile(id, "source");
     else if (act === "open-inbox") await openAssetFile(id, "inbox");
@@ -2841,6 +2909,17 @@ function switchNewAssetDlgTab(tab) {
     panel.classList.toggle("hidden", !show);
     panel.hidden = !show;
   });
+  updateImportGenModeBarVisibility();
+  if (tab === "import") {
+    const mode = currentGenMode();
+    if (mode === "redraw") {
+      setImportGenMode("redraw", { syncPrompt: true });
+    } else {
+      setImportGenMode("txt2img", { syncPrompt: mode === "txt2img" });
+    }
+  } else {
+    updateImportHintText();
+  }
   updateNewAssetSubmitLabel();
 }
 
@@ -2964,6 +3043,10 @@ function bindNewAssetImportUi() {
     removeImportDraftFile(btn.dataset.importRemove);
   });
 
+  $$('input[name="import_gen_mode"]').forEach((r) => {
+    r.addEventListener("change", onImportGenModeChange);
+  });
+
   dlg?.addEventListener("close", () => {
     resetImportDraft();
     switchNewAssetDlgTab("manual");
@@ -3016,6 +3099,7 @@ async function newAssetDialog() {
         try {
           const fd = new FormData();
           fd.append("category", state.categoryId);
+          fd.append("gen_mode", currentImportGenMode());
           for (const item of importDraftFiles) {
             fd.append("files", item.file, item.file.name);
           }
@@ -3038,6 +3122,7 @@ async function newAssetDialog() {
             toast(t("toast.assetsImported", { n: result.count ?? created.length }));
           }
           if (created[0]?.id) {
+            applyGenModeToPromptPanel(created[0].gen_mode || currentImportGenMode());
             await selectAsset(created[0].id);
             switchTab("basic");
           }
@@ -3228,7 +3313,7 @@ function bindUi() {
   $("#form-settings")?.addEventListener("submit", saveSettings);
 
   $$('input[name="gen_mode"]').forEach((r) => {
-    r.addEventListener("change", updateGenModeUi);
+    r.addEventListener("change", onGenModePanelChange);
   });
   $("#img2img-denoise-range")?.addEventListener("input", syncDenoiseFromRange);
   $("#img2img-denoise")?.addEventListener("change", syncDenoiseFromNumber);
@@ -3264,16 +3349,6 @@ function bindUi() {
     switch (act) {
       case "scan-status":
         await withBtnBusy(btn, scanStatus);
-        break;
-      case "dup-asset":
-        if (!state.assetId) break;
-        await withBtnBusy(btn, async () => {
-          const a = await API.post(`/api/assets/${state.assetId}/duplicate`);
-          await loadAssetList();
-          await selectAsset(a.id);
-        }).catch((err) => {
-          if (err) toast(err.message);
-        });
         break;
       case "refresh-preview":
         if (state.assetId) {

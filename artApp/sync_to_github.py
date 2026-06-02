@@ -5,7 +5,7 @@
 用法:
   cd ArtPipeline/artApp
   python3 sync_to_github.py
-  python3 sync_to_github.py --dest /Users/keyle/ArtPipeline-Studio
+  python3 sync_to_github.py --dest ~/ArtPipeline-Studio
   python3 sync_to_github.py --dry-run
 """
 
@@ -92,6 +92,7 @@ RSYNC_EXCLUDES = [
     "source/",
     "inbox/",
     "workflows/assets/",  # tools/workflows/assets 个人工作流
+    "pipeline_config.json",  # 本地主配置，不入库
 ]
 
 SANITIZE_DEFAULT_KEYS = (
@@ -102,6 +103,7 @@ SANITIZE_DEFAULT_KEYS = (
 )
 
 SK_PATTERN = re.compile(r"sk-[A-Za-z0-9]{8,}")
+HOME_PATH_PATTERN = re.compile(r"(/Users/[^/\"\\]+|/home/[^/\"\\]+|C:\\\\Users\\\\[^\\\\\"]+)")
 
 
 def sanitize_pipeline_config(data: dict) -> dict:
@@ -115,7 +117,59 @@ def sanitize_pipeline_config(data: dict) -> dict:
     for key, val in list(defaults.items()):
         if isinstance(val, str) and SK_PATTERN.search(val):
             defaults[key] = ""
-    return out
+    return _sanitize_values_recursive(out)
+
+
+def _sanitize_values_recursive(obj: object) -> object:
+    """递归清除字符串中的 sk-* 密钥与用户 home 绝对路径。"""
+    if isinstance(obj, dict):
+        return {k: _sanitize_values_recursive(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_values_recursive(v) for v in obj]
+    if isinstance(obj, str):
+        if SK_PATTERN.search(obj):
+            return ""
+        if HOME_PATH_PATTERN.search(obj):
+            return ""
+    return obj
+
+
+def build_public_example_config(tools_dir: Path) -> dict:
+    """生成可公开的 example 配置（通用模板，非个人本地副本）。"""
+    tools_path = str(tools_dir.resolve())
+    if tools_path not in sys.path:
+        sys.path.insert(0, tools_path)
+    try:
+        from bootstrap_config import build_default_config
+
+        return sanitize_pipeline_config(build_default_config())
+    except Exception as exc:
+        print(f"  ⚠ bootstrap_config 失败 ({exc})，回退为最小模板")
+        return {
+            "version": 1,
+            "defaults": {
+                "comfyui_url": "http://127.0.0.1:8188",
+                "checkpoint": "animagineXL_v3.safetensors",
+                "steps": 35,
+                "cfg": 7.0,
+                "sampler": "euler_ancestral",
+                "scheduler": "normal",
+                "deepseek_api_key": "",
+                "deepseek_model": "deepseek-v4-flash",
+                "project_root": "",
+                "art_pipeline_root": "",
+                "log_dir": "",
+            },
+            "categories": [],
+            "assets": [],
+        }
+
+
+def write_public_example_config(dest: Path) -> None:
+    example = dest / "tools" / "pipeline_config.example.json"
+    data = build_public_example_config(dest / "tools")
+    example.parent.mkdir(parents=True, exist_ok=True)
+    example.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def write_sanitized_config(src: Path, dest: Path) -> None:
@@ -172,10 +226,12 @@ def sync_screenshots(dest: Path, *, dry_run: bool) -> None:
 def post_process(dest: Path, *, dry_run: bool) -> None:
     cfg = dest / "tools" / "pipeline_config.json"
     example = dest / "tools" / "pipeline_config.example.json"
-    if cfg.is_file() and not dry_run:
-        write_sanitized_config(cfg, example)
-        cfg.unlink()
-        print("  ✓ 已生成 tools/pipeline_config.example.json（已删除带密钥的 pipeline_config.json）")
+    if not dry_run:
+        write_public_example_config(dest)
+        print("  ✓ 已生成 tools/pipeline_config.example.json（通用 bootstrap 模板）")
+        if cfg.is_file():
+            cfg.unlink()
+            print("  ✓ 已删除 tools/pipeline_config.json（本地配置不入库）")
 
     assets_dir = dest / "tools" / "workflows" / "assets"
     if not dry_run:

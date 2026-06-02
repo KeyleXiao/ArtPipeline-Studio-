@@ -42,6 +42,12 @@ let drag = null;
 let cropMode = false;
 let matteMode = false;
 let matteBusy = false;
+/** @type {{ layerId: string, points: number[][], lastX: number, lastY: number, historyPushed: boolean } | null} */
+let matteStroke = null;
+let matteStrokeActive = false;
+let matteFlushTimer = null;
+const MATTE_STROKE_MIN_PX = 3;
+const MATTE_FLUSH_MS = 48;
 let cropPreview = null;
 let cropDrag = null;
 let cropRawImg = null;
@@ -936,29 +942,97 @@ async function applyBorderMatte(btn) {
   });
 }
 
-async function applySeedMatte(docX, docY, layer) {
-  if (!layer || layer.type !== "image" || layer.locked || matteBusy) return;
+function cancelMatteStrokeTimer() {
+  if (matteFlushTimer) {
+    clearTimeout(matteFlushTimer);
+    matteFlushTimer = null;
+  }
+}
+
+function beginMatteStroke(layer, docX, docY) {
+  if (!layer || layer.type !== "image" || layer.locked) return false;
+  const px = docToRawPixel(layer, docX, docY);
+  if (!px) return false;
+  matteStroke = {
+    layerId: layer.id,
+    points: [[px.x, px.y]],
+    lastX: px.x,
+    lastY: px.y,
+    historyPushed: false,
+  };
+  return true;
+}
+
+function extendMatteStroke(layer, docX, docY) {
+  if (!matteStroke || matteStroke.layerId !== layer.id) return;
   const px = docToRawPixel(layer, docX, docY);
   if (!px) return;
+  const dx = px.x - matteStroke.lastX;
+  const dy = px.y - matteStroke.lastY;
+  if (dx * dx + dy * dy < MATTE_STROKE_MIN_PX * MATTE_STROKE_MIN_PX) return;
+  matteStroke.points.push([px.x, px.y]);
+  matteStroke.lastX = px.x;
+  matteStroke.lastY = px.y;
+  scheduleMatteFlush();
+}
+
+function scheduleMatteFlush(immediate = false) {
+  cancelMatteStrokeTimer();
+  if (immediate) {
+    flushMatteStroke();
+    return;
+  }
+  matteFlushTimer = setTimeout(() => flushMatteStroke(), MATTE_FLUSH_MS);
+}
+
+async function flushMatteStroke(force = false) {
+  cancelMatteStrokeTimer();
+  if (!matteStroke?.points?.length) return;
+  if (matteBusy) {
+    if (force || matteStrokeActive) scheduleMatteFlush();
+    return;
+  }
+  const layer = stack.layers.find((l) => l.id === matteStroke.layerId);
+  if (!layer) {
+    matteStroke = null;
+    return;
+  }
+  const batch = matteStroke.points.splice(0, matteStroke.points.length);
   matteBusy = true;
   setStatus(t("pp.matteSeedWorking"));
   try {
-    await pushHistoryBefore({ includeImages: true });
+    if (!matteStroke.historyPushed) {
+      await pushHistoryBefore({ includeImages: true });
+      matteStroke.historyPushed = true;
+    }
     await callLayerMatte({
       layer_id: layer.id,
-      mode: "seed",
-      seed_x: px.x,
-      seed_y: px.y,
+      mode: "stroke",
+      seed_points: batch,
       ...readMatteSettings(),
     });
-    setStatus(t("pp.matteSeedDone"));
     await fetchBounds();
     await refreshPreview();
+    setStatus(t("pp.matteSeedDone"));
   } catch (err) {
+    matteStroke.points.unshift(...batch);
     setStatus(err.message);
   } finally {
     matteBusy = false;
+    if (matteStroke?.points?.length) scheduleMatteFlush(force);
   }
+}
+
+async function endMatteStroke() {
+  matteStrokeActive = false;
+  await flushMatteStroke(true);
+  matteStroke = null;
+}
+
+function resetMatteStroke() {
+  matteStrokeActive = false;
+  cancelMatteStrokeTimer();
+  matteStroke = null;
 }
 
 function updateMatteModeUi() {
@@ -988,6 +1062,7 @@ function enterMatteMode() {
 function exitMatteMode() {
   if (!matteMode) return;
   matteMode = false;
+  resetMatteStroke();
   updateMatteModeUi();
   setStatus(t("pp.ready"));
 }
@@ -1580,12 +1655,18 @@ function bindViewport() {
 
     if (matteMode && e.button === 0) {
       e.preventDefault();
-      if (layer?.type === "image" && !layer.locked) {
-        selectedId = layer.id;
+      const target = layer?.type === "image" && !layer.locked ? layer : selectedLayer();
+      if (target?.type === "image" && !target.locked) {
+        selectedId = target.id;
         renderLayers();
         fillProps();
         drawOverlay();
-        applySeedMatte(doc.x, doc.y, layer);
+        matteStrokeActive = true;
+        if (beginMatteStroke(target, doc.x, doc.y)) {
+          scheduleMatteFlush();
+        } else {
+          matteStrokeActive = false;
+        }
       }
       return;
     }
@@ -1615,6 +1696,14 @@ function bindViewport() {
 
   window.addEventListener("mousemove", (e) => {
     if (cropMode) return;
+    if (matteMode && matteStrokeActive && (e.buttons & 1)) {
+      const doc = canvasToDoc(e.clientX, e.clientY);
+      const layer = stack.layers.find((l) => l.id === matteStroke?.layerId) || hitTestLayer(doc.x, doc.y);
+      if (layer?.type === "image" && !layer.locked) {
+        extendMatteStroke(layer, doc.x, doc.y);
+      }
+      return;
+    }
     if (!drag) return;
     const doc = canvasToDoc(e.clientX, e.clientY);
     const layer = stack.layers.find((l) => l.id === drag.id);
@@ -1635,6 +1724,9 @@ function bindViewport() {
   });
 
   window.addEventListener("mouseup", () => {
+    if (matteStrokeActive) {
+      endMatteStroke();
+    }
     if (drag) {
       drag = null;
       refreshPreview();
