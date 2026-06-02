@@ -1,0 +1,10 @@
+{
+  "_comment": "道具 icon 专用模板 · 见 ArtPipeline/tools/workflows/_item_icon_sdxl_api.json",
+  "checkpoint": "animagineXL_v3.safetensors",
+  "width": 256,
+  "height": 256,
+  "gen_scale": 2.0,
+  "recommended_steps": 30,
+  "recommended_cfg": 6.5,
+  "notes": "256 入库，512 生成后缩小；整张含统一暗金框，边到边满幅"
+}

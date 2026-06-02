@@ -1,0 +1,182 @@
+# ArtPipeline 资源清单（与 pipeline_config.json 同步）
+# inbox 相对 ArtPipeline/；unity 相对项目根
+
+defaults:
+  checkpoint: animagineXL_v3.safetensors
+  comfyui_url: http://127.0.0.1:8188
+
+roles:
+  - file: role_dealer.png
+    size: 512x512
+    inbox: inbox/roles/role_dealer.png
+    unity: Assets/Art/UI/Icons/Roles/role_dealer.png
+    subject: 1girl, solo, beautiful mature woman, casino dealer, croupier
+  - file: role_magician.png
+    size: 512x512
+    inbox: inbox/roles/role_magician.png
+    unity: Assets/Art/UI/Icons/Roles/role_magician.png
+    subject: 1girl, solo, stage magician, complete face, top hat, magic w
+  - file: role_gambler.png
+    size: 512x512
+    inbox: inbox/roles/role_gambler.png
+    unity: Assets/Art/UI/Icons/Roles/role_gambler.png
+    subject: 1boy, solo, gambler, roguish smirk, complete face, dice in h
+  - file: role_warrior.png
+    size: 512x512
+    inbox: inbox/roles/role_warrior.png
+    unity: Assets/Art/UI/Icons/Roles/role_warrior.png
+    subject: 1boy, solo, knight warrior, complete face, gold pauldrons, b
+  - file: role_mercenary.png
+    size: 512x512
+    inbox: inbox/roles/role_mercenary.png
+    unity: Assets/Art/UI/Icons/Roles/role_mercenary.png
+    subject: 1boy, solo, mercenary, eyepatch, complete face, both arms vi
+  - file: role_doctor.png
+    size: 512x512
+    inbox: inbox/roles/role_doctor.png
+    unity: Assets/Art/UI/Icons/Roles/role_doctor.png
+    subject: 1girl, solo, doctor apothecary, complete face, dark medical 
+  - file: role_traitor.png
+    size: 512x512
+    inbox: inbox/roles/role_traitor.png
+    unity: Assets/Art/UI/Icons/Roles/role_traitor.png
+    subject: 1boy, solo, hooded figure, smooth blank oval face skin under
+
+items:
+  - file: item_spyglass.png
+    size: 256x256
+    inbox: inbox/items/item_spyglass.png
+    unity: Assets/Art/UI/Icons/Items/item_spyglass.png
+    subject: 窥视镜 · 放大镜 + 紫蓝魔法光
+  - file: item_eject_drink.png
+    size: 256x256
+    inbox: inbox/items/item_eject_drink.png
+    unity: Assets/Art/UI/Icons/Items/item_eject_drink.png
+    subject: 退弹饮 · 绿色药瓶 + 弹壳弹出
+  - file: item_rage_potion.png
+    size: 256x256
+    inbox: inbox/items/item_rage_potion.png
+    unity: Assets/Art/UI/Icons/Items/item_rage_potion.png
+    subject: 狂暴剂 · 锯齿药瓶 + 沸腾红液火星
+  - file: item_amulet.png
+    size: 256x256
+    inbox: inbox/items/item_amulet.png
+    unity: Assets/Art/UI/Icons/Items/item_amulet.png
+    subject: 护身符 · 金吊坠 + 暗红宝石
+  - file: item_milk_tea.png
+    size: 256x256
+    inbox: inbox/items/item_milk_tea.png
+    unity: Assets/Art/UI/Icons/Items/item_milk_tea.png
+    subject: 奶茶 · 珍珠奶茶杯 + 金边
+  - file: item_expired_pill.png
+    size: 256x256
+    inbox: inbox/items/item_expired_pill.png
+    unity: Assets/Art/UI/Icons/Items/item_expired_pill.png
+    subject: 过期药片 · 白色药片 + 泡罩 + 发黑变色
+  - file: item_steal_hand.png
+    size: 256x256
+    inbox: inbox/items/item_steal_hand.png
+    unity: Assets/Art/UI/Icons/Items/item_steal_hand.png
+    subject: 妙手空空 · 黑手套 + 金筹码
+  - file: item_inverter.png
+    size: 256x256
+    inbox: inbox/items/item_inverter.png
+    unity: Assets/Art/UI/Icons/Items/item_inverter.png
+    subject: 置换器 · 左轮弹巢 + 红灰子弹
+
+skills:
+  - file: skill_gambler_luck.png
+    size: 128x128
+    inbox: inbox/skills/skill_gambler_luck.png
+    unity: Assets/Art/UI/Icons/Skills/skill_gambler_luck.png
+    subject: 好运连连 · 赌徒被动
+  - file: skill_dealer_prophet.png
+    size: 128x128
+    inbox: inbox/skills/skill_dealer_prophet.png
+    unity: Assets/Art/UI/Icons/Skills/skill_dealer_prophet.png
+    subject: 先知 · 扑克牌 + 放大镜
+  - file: skill_magician_trajectory.png
+    size: 128x128
+    inbox: inbox/skills/skill_magician_trajectory.png
+    unity: Assets/Art/UI/Icons/Skills/skill_magician_trajectory.png
+    subject: 弹道操控 · 子弹 + 魔杖
+
+ui_status:
+  - file: hp_heart_full.png
+    size: 128x128
+    inbox: inbox/ui_status/hp_heart_full.png
+    unity: Assets/Art/UI/Icons/UI/Status/hp_heart_full.png
+    subject: 当前生命 · 实心红心 + 金边
+  - file: hp_heart_empty.png
+    size: 128x128
+    inbox: inbox/ui_status/hp_heart_empty.png
+    unity: Assets/Art/UI/Icons/UI/Status/hp_heart_empty.png
+    subject: 已失去生命槽 · 空心灰心
+  - file: hp_heart_dead.png
+    size: 128x128
+    inbox: inbox/ui_status/hp_heart_dead.png
+    unity: Assets/Art/UI/Icons/UI/Status/hp_heart_dead.png
+    subject: 淘汰玩家 · 碎裂灰心
+  - file: badge_lock.png
+    size: 128x128
+    inbox: inbox/ui_status/badge_lock.png
+    unity: Assets/Art/UI/Icons/UI/Status/badge_lock.png
+    subject: 本回合锁枪 · 黄铜挂锁
+  - file: badge_skull.png
+    size: 128x128
+    inbox: inbox/ui_status/badge_skull.png
+    unity: Assets/Art/UI/Icons/UI/Status/badge_skull.png
+    subject: 玩家淘汰 · 白色骷髅头
+  - file: badge_traitor.png
+    size: 128x128
+    inbox: inbox/ui_status/badge_traitor.png
+    unity: Assets/Art/UI/Icons/UI/Status/badge_traitor.png
+    subject: 背叛者身份 · 兜帽剪影
+
+ui_frames:
+  - file: card_frame.png
+    size: 128x128
+    inbox: inbox/ui_frames/card_frame.png
+    unity: Assets/Art/UI/Icons/UI/Frames/card_frame.png
+    subject: 玩家金框 · 九宫格卡框
+  - file: card_frame_silver.png
+    size: 128x128
+    inbox: inbox/ui_frames/card_frame_silver.png
+    unity: Assets/Art/UI/Icons/UI/Frames/card_frame_silver.png
+    subject: 玩家银框 · 九宫格卡框
+
+ui_buttons:
+  - file: btn_primary.png
+    size: 128x128
+    inbox: inbox/ui_buttons/btn_primary.png
+    unity: Assets/Art/UI/Icons/UI/Buttons/btn_primary.png
+    subject: 主按钮 · 紫金底框
+  - file: btn_secondary.png
+    size: 128x128
+    inbox: inbox/ui_buttons/btn_secondary.png
+    unity: Assets/Art/UI/Icons/UI/Buttons/btn_secondary.png
+    subject: 次按钮 · 暗灰底框
+  - file: btn_danger.png
+    size: 128x128
+    inbox: inbox/ui_buttons/btn_danger.png
+    unity: Assets/Art/UI/Icons/UI/Buttons/btn_danger.png
+    subject: 危险按钮 · 暗红底框
+
+ui_combat:
+  - file: revolver.png
+    size: 256x256
+    inbox: inbox/ui_combat/revolver.png
+    unity: Assets/Art/UI/Icons/UI/Combat/revolver.png
+    subject: 左轮手枪 · 侧视
+  - file: bullet.png
+    size: 256x256
+    inbox: inbox/ui_combat/bullet.png
+    unity: Assets/Art/UI/Icons/UI/Combat/bullet.png
+    subject: 子弹 · 侧视
+
+backgrounds:
+  - file: startup_poster.png
+    size: 512x896
+    inbox: inbox/backgrounds/startup_poster.png
+    unity: Assets/Art/UI/startup_poster.png
+    subject: 启动海报 · 竖屏暗黑赌场

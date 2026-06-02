@@ -1,0 +1,7 @@
+{
+  "_comment": "UI 小标 · 128x128 · generate_icons_comfyui.py --kind hp",
+  "checkpoint": "animagineXL_v3.safetensors",
+  "width": 128,
+  "height": 128,
+  "notes": "血量心等无边框单符号"
+}

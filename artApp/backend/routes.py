@@ -1,0 +1,1706 @@
+#!/usr/bin/env python3
+"""REST + SSE 路由。"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import platform
+import shutil
+import subprocess
+import time
+import uuid
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field
+
+from backend.deps import TOOLS_DIR, get_config_manager, reload_config_manager
+from backend.services.log_bus import log_bus
+from backend.services.pipeline_runner import pipeline_runner
+from backend.services.preview import PREVIEW_MAX, PreviewSource, preview_png_bytes, resolve_path_for_source
+
+router = APIRouter(prefix="/api")
+
+
+# ── 序列化 ─────────────────────────────────────────────
+
+
+def _asset_dict(a: Any, *, full: bool = False) -> dict[str, Any]:
+    d = {
+        "id": a.id,
+        "filename": a.filename,
+        "category": a.category,
+        "width": a.width,
+        "height": a.height,
+        "size_label": a.size_label(),
+        "subject": a.subject,
+        "enabled": a.enabled,
+        "seed": a.seed or "",
+        "remove_bg_mode": a.remove_bg_mode,
+        "gen_mode": getattr(a, "gen_mode", "txt2img"),
+        "ref_image": getattr(a, "ref_image", ""),
+        "ref_image_use_source": bool(getattr(a, "ref_image_use_source", False)),
+        "img2img_denoise": getattr(a, "img2img_denoise", 0.65),
+    }
+    if full:
+        config = get_config_manager()
+        src, _inbox, _unity = config.resolve_paths(a)
+        d["source_path"] = str(src)
+        d["checkpoint"] = config.checkpoint_for_category(a.category)
+        d["positive"] = a.positive
+        d["negative"] = a.negative
+        d["positive_g"] = a.positive_g
+        d["positive_l"] = a.positive_l
+        d["workflow"] = a.workflow
+    return d
+
+
+def _category_dict(c: Any, *, full: bool = False) -> dict[str, Any]:
+    ckpt = c.checkpoint or ""
+    d = {
+        "id": c.id,
+        "label": c.label,
+        "checkpoint": ckpt,
+        "checkpoint_short": Path(ckpt).name[:24] if ckpt else "默认",
+        "source": c.source,
+        "inbox": c.inbox,
+        "unity": c.unity,
+        "alpha_matte": c.alpha_matte,
+        "positive_common": c.positive_common if full else "",
+        "negative_common": c.negative_common if full else "",
+    }
+    return d
+
+
+def _file_info(path: Path) -> dict[str, Any]:
+    out: dict[str, Any] = {"path": str(path), "exists": False}
+    try:
+        if path.is_file():
+            st = path.stat()
+            out["exists"] = True
+            out["mtime"] = st.st_mtime
+            out["size"] = st.st_size
+    except OSError:
+        pass
+    return out
+
+
+def _asset_activity(asset: Any, *, limit: int = 8) -> list[dict[str, Any]]:
+    needles = {asset.id, asset.filename}
+    hits: list[dict[str, Any]] = []
+    for entry in reversed(log_bus.history(limit=800)):
+        msg = entry.get("msg", "")
+        if any(n and n in msg for n in needles):
+            hits.append(entry)
+            if len(hits) >= limit:
+                break
+    hits.reverse()
+    return hits
+
+
+def _asset_info_dict(config: Any, asset: Any) -> dict[str, Any]:
+    src, inbox, unity = config.resolve_paths(asset)
+    wf_path = config.workflow_file_for_asset(asset)
+    cfg_path = config.path
+    raw = config._asset_raw(asset.id) or {}
+    has_pp = "postprocess" in raw and raw.get("postprocess") is not None
+    return {
+        "id": asset.id,
+        "filename": asset.filename,
+        "size_label": asset.size_label(),
+        "subject": asset.subject or "",
+        "seed": asset.seed or "",
+        "enabled": asset.enabled,
+        "files": {
+            "source": _file_info(src),
+            "inbox": _file_info(inbox),
+            "unity": _file_info(unity),
+        },
+        "workflow": _file_info(wf_path),
+        "config_file": _file_info(cfg_path),
+        "has_postprocess": has_pp,
+        "activity": _asset_activity(asset),
+    }
+
+
+# ── Models ─────────────────────────────────────────────
+
+
+class AssetUpdateBody(BaseModel):
+    filename: str | None = None
+    category: str | None = None
+    width: int | None = None
+    height: int | None = None
+    seed: str | None = None
+    subject: str | None = None
+    enabled: bool | None = None
+    remove_bg_mode: str | None = None
+    positive: str | None = None
+    negative: str | None = None
+    positive_g: str | None = None
+    positive_l: str | None = None
+    gen_mode: str | None = None
+    ref_image: str | None = None
+    ref_image_use_source: bool | None = None
+    img2img_denoise: float | None = None
+
+
+class LayerMatteBody(BaseModel):
+    layer_id: str
+    stack: dict[str, Any] | None = None
+    mode: str = "border"
+    seed_x: int | None = None
+    seed_y: int | None = None
+    color_tol: float = 34.0
+    step_tol: float = 16.0
+    feather: int = 0
+
+
+class LayerRawBody(BaseModel):
+    layer_id: str
+    stack: dict[str, Any] | None = None
+
+
+class LayerRestoreImageBody(BaseModel):
+    layer_id: str
+    image_b64: str
+    stack: dict[str, Any] | None = None
+
+
+class CategoryUpdateBody(BaseModel):
+    label: str | None = None
+    source: str | None = None
+    inbox: str | None = None
+    unity: str | None = None
+    checkpoint: str | None = None
+    positive_common: str | None = None
+    negative_common: str | None = None
+    alpha_matte: str | None = None
+
+
+class NewCategoryBody(BaseModel):
+    label: str
+    id: str | None = None
+    checkpoint: str = ""
+
+
+class NewAssetBody(BaseModel):
+    filename: str
+    category: str
+    width: int = 512
+    height: int = 512
+    subject: str = ""
+    enabled: bool = False
+
+
+class AssetRenameBody(BaseModel):
+    filename: str
+
+
+class MoveAssetCategoryBody(BaseModel):
+    category: str
+
+
+class GenerateBody(BaseModel):
+    asset_ids: list[str] = Field(default_factory=list)
+    export_after: bool = False
+
+
+class AiChatBody(BaseModel):
+    message: str
+    asset_id: str
+    mode: str = "free"
+
+
+class OpenPathBody(BaseModel):
+    path: str
+
+
+class PickImageFileBody(BaseModel):
+    initial_dir: str | None = None
+
+
+def _rel_to_art_root(path: Path, art_root: Path) -> str:
+    try:
+        return path.resolve().relative_to(art_root.resolve()).as_posix()
+    except ValueError:
+        return str(path.resolve())
+
+
+def _pick_image_path(initial_dir: Path) -> Path | None:
+    initial = str(initial_dir.resolve())
+    if platform.system() == "Darwin":
+        esc = initial.replace("\\", "\\\\").replace('"', '\\"')
+        script = f'''
+set defaultPath to POSIX file "{esc}"
+try
+    set picked to choose file of type {{"png", "jpg", "jpeg", "webp", "PNG", "JPG", "public.image"}} with prompt "选择图片" default location defaultPath
+    return POSIX path of picked
+on error number -128
+    return ""
+end try
+'''
+        r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+        p = r.stdout.strip()
+        return Path(p) if p else None
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            root.attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        path = filedialog.askopenfilename(
+            title="选择图片",
+            initialdir=initial,
+            filetypes=[
+                ("Images", "*.png;*.jpg;*.jpeg;*.webp"),
+                ("PNG", "*.png"),
+                ("All", "*.*"),
+            ],
+        )
+        root.destroy()
+        return Path(path) if path else None
+    except Exception:
+        return None
+
+
+# ── Health / config ─────────────────────────────────────────────
+
+
+@router.get("/health")
+def health() -> dict[str, Any]:
+    from backend.services.pipeline_runner import pipeline_runner
+
+    return {
+        "status": "ok",
+        "ui": "artApp-web",
+        "legacy": str(TOOLS_DIR / "artTool_ui.py"),
+        "job": pipeline_runner.progress_snapshot(),
+    }
+
+
+@router.post("/config/reload")
+def config_reload() -> dict[str, str]:
+    reload_config_manager()
+    log_bus.log("配置已重新加载", kind="系统")
+    return {"status": "reloaded"}
+
+
+@router.post("/config/save")
+def config_save() -> dict[str, str]:
+    get_config_manager().save()
+    log_bus.log("配置已保存", kind="系统")
+    return {"status": "saved"}
+
+
+# ── ComfyUI ─────────────────────────────────────────────
+
+
+@router.get("/comfyui/status")
+def comfyui_status() -> dict[str, Any]:
+    from pipeline_core import PipelineCore
+
+    ok, msg = PipelineCore(get_config_manager()).test_comfyui()
+    return {"ok": ok, "message": msg}
+
+
+@router.get("/comfyui/checkpoints")
+def list_checkpoints() -> dict[str, Any]:
+    from pipeline_core import PipelineCore
+
+    try:
+        ckpts = PipelineCore(get_config_manager()).list_checkpoints()
+        return {"checkpoints": ckpts, "offline": False}
+    except Exception as exc:
+        return {"checkpoints": [], "offline": True, "message": str(exc)}
+
+
+# ── Jobs ─────────────────────────────────────────────
+
+
+@router.get("/jobs/status")
+def job_status() -> dict[str, Any]:
+    return pipeline_runner.progress_snapshot()
+
+
+@router.post("/jobs/cancel")
+def job_cancel() -> dict[str, str]:
+    pipeline_runner.cancel()
+    return {"status": "cancel_requested"}
+
+
+@router.post("/generate")
+def generate_assets(body: GenerateBody) -> dict[str, str]:
+    if not body.asset_ids:
+        raise HTTPException(400, "asset_ids 为空")
+    if pipeline_runner.is_busy():
+        raise HTTPException(409, "任务进行中")
+    try:
+        pipeline_runner.generate_batch(body.asset_ids, export_after=body.export_after)
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"status": "started"}
+
+
+@router.post("/export")
+def export_assets(body: GenerateBody) -> dict[str, str]:
+    if not body.asset_ids:
+        raise HTTPException(400, "asset_ids 为空")
+    if pipeline_runner.is_busy():
+        raise HTTPException(409, "任务进行中")
+    try:
+        pipeline_runner.export_batch(body.asset_ids)
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"status": "started"}
+
+
+@router.post("/workflows/init")
+def init_workflows() -> dict[str, Any]:
+    from pipeline_core import PipelineCore
+
+    n = PipelineCore(get_config_manager()).init_asset_workflows_from_default()
+    log_bus.log(f"已为 {n} 个资源创建工作流 JSON", kind="系统")
+    return {"created": n}
+
+
+# ── Logs ─────────────────────────────────────────────
+
+
+@router.get("/logs")
+def get_logs(tab: str = Query("全部"), limit: int = Query(500, le=2000)) -> dict[str, Any]:
+    return {"entries": log_bus.history(tab=tab, limit=limit)}
+
+
+@router.delete("/logs")
+def clear_logs() -> dict[str, str]:
+    log_bus.clear()
+    return {"status": "cleared"}
+
+
+@router.get("/logs/stream")
+async def stream_logs() -> StreamingResponse:
+    async def event_gen():
+        q = log_bus.subscribe()
+        try:
+            for entry in log_bus.history(limit=50):
+                yield f"data: {json.dumps(entry, ensure_ascii=False)}\n\n"
+            while True:
+                try:
+                    entry = await asyncio.wait_for(q.get(), timeout=25.0)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                if entry is None:
+                    break
+                yield f"data: {json.dumps(entry, ensure_ascii=False)}\n\n"
+        finally:
+            log_bus.unsubscribe(q)
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+
+# ── Settings ─────────────────────────────────────────────
+
+
+@router.get("/settings")
+def get_settings() -> dict[str, Any]:
+    d = get_config_manager().defaults
+    return {
+        "project_root": str(d.get("project_root", "")),
+        "art_pipeline_root": str(d.get("art_pipeline_root", "")),
+        "comfyui_url": str(d.get("comfyui_url", "")),
+        "steps": int(d.get("steps", 35)),
+        "cfg": float(d.get("cfg", 7.0)),
+        "sampler": str(d.get("sampler", "euler_ancestral")),
+        "scheduler": str(d.get("scheduler", "normal")),
+        "seed": str(d.get("seed", "")),
+        "checkpoint": str(d.get("checkpoint", "")),
+        "deepseek_api_key": str(d.get("deepseek_api_key", "")),
+        "deepseek_model": str(d.get("deepseek_model", "")),
+    }
+
+
+@router.put("/settings")
+def put_settings(body: dict[str, Any]) -> dict[str, str]:
+    from ai_assistant import SUPPORTED_MODELS, resolve_model
+
+    config = get_config_manager()
+    d = config.defaults
+    project = str(body.get("project_root", "")).strip()
+    if project and not Path(project).expanduser().is_dir():
+        raise HTTPException(400, f"Unity 项目根目录不存在: {project}")
+    art = str(body.get("art_pipeline_root", "")).strip()
+    if art and not Path(art).expanduser().is_dir():
+        raise HTTPException(400, f"ArtPipeline 根目录不存在: {art}")
+    for key in (
+        "project_root",
+        "art_pipeline_root",
+        "comfyui_url",
+        "sampler",
+        "scheduler",
+        "seed",
+        "checkpoint",
+        "deepseek_api_key",
+    ):
+        if key in body:
+            d[key] = str(body[key]).strip()
+    if "steps" in body:
+        d["steps"] = int(body["steps"])
+    if "cfg" in body:
+        d["cfg"] = float(body["cfg"])
+    if "deepseek_model" in body:
+        m = resolve_model(str(body["deepseek_model"]))
+        if m not in SUPPORTED_MODELS:
+            raise HTTPException(400, f"不支持的模型: {m}")
+        d["deepseek_model"] = m
+    config.save()
+    reload_config_manager()
+    log_bus.log("全局设置已保存", kind="系统")
+    return {"status": "saved"}
+
+
+@router.get("/settings/paths/default")
+def default_paths() -> dict[str, str]:
+    from paths import ART_ROOT, PROJECT_ROOT
+
+    return {"project_root": str(PROJECT_ROOT.resolve()), "art_pipeline_root": str(ART_ROOT.resolve())}
+
+
+# ── Categories ─────────────────────────────────────────────
+
+
+@router.get("/categories")
+def list_categories(full: bool = Query(False)) -> dict[str, Any]:
+    config = get_config_manager()
+    return {"categories": [_category_dict(c, full=full) for c in config.categories()]}
+
+
+@router.get("/categories/{cat_id}")
+def get_category(cat_id: str) -> dict[str, Any]:
+    cat = get_config_manager().category_by_id(cat_id)
+    if not cat:
+        raise HTTPException(404, f"未知分类: {cat_id}")
+    return _category_dict(cat, full=True)
+
+
+@router.put("/categories/{cat_id}")
+def update_category(cat_id: str, body: CategoryUpdateBody) -> dict[str, str]:
+    config = get_config_manager()
+    cat = config.category_by_id(cat_id)
+    if not cat:
+        raise HTTPException(404, f"未知分类: {cat_id}")
+    if body.label is not None:
+        cat.label = body.label.strip()
+    if body.source is not None:
+        cat.source = body.source.strip()
+    if body.inbox is not None:
+        cat.inbox = body.inbox.strip()
+    if body.unity is not None:
+        cat.unity = body.unity.strip()
+    if body.checkpoint is not None:
+        cat.checkpoint = body.checkpoint.strip()
+    if body.positive_common is not None:
+        cat.positive_common = body.positive_common
+    if body.negative_common is not None:
+        cat.negative_common = body.negative_common
+    if body.alpha_matte is not None:
+        cat.alpha_matte = body.alpha_matte
+    config.update_category(cat)
+    config.ensure_category_dirs(cat)
+    reload_config_manager()
+    log_bus.log(f"已保存分类设置: {cat.id}", kind="操作")
+    return {"status": "saved"}
+
+
+@router.post("/categories")
+def create_category(body: NewCategoryBody) -> dict[str, Any]:
+    try:
+        cat = get_config_manager().add_category(
+            body.label.strip(),
+            body.id,
+            checkpoint=body.checkpoint.strip(),
+        )
+        reload_config_manager()
+        log_bus.log(f"新建分类: {cat.id}", kind="操作")
+        return _category_dict(cat, full=True)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.delete("/categories/{cat_id}")
+def delete_category(cat_id: str) -> dict[str, Any]:
+    config = get_config_manager()
+    cat = config.category_by_id(cat_id)
+    if not cat:
+        raise HTTPException(404, f"未知分类: {cat_id}")
+    try:
+        removed_assets = config.delete_category(cat_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    reload_config_manager()
+    log_bus.log(f"已删除分类: {cat_id}（{removed_assets} 个资源配置）", kind="操作")
+    return {"status": "deleted", "id": cat_id, "removed_assets": removed_assets}
+
+
+# ── Assets ─────────────────────────────────────────────
+
+
+@router.get("/assets")
+def list_assets(category: str = Query(...), q: str = Query("")) -> dict[str, Any]:
+    config = get_config_manager()
+    if not config.category_by_id(category):
+        raise HTTPException(404, f"未知分类: {category}")
+    query = q.strip().lower()
+    items = []
+    for asset in config.assets(category=category):
+        if query and query not in asset.filename.lower() and query not in asset.id.lower():
+            continue
+        items.append(_asset_dict(asset))
+    return {"category": category, "count": len(items), "assets": items}
+
+
+@router.get("/assets/{asset_id}")
+def get_asset(asset_id: str) -> dict[str, Any]:
+    asset = get_config_manager().asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    return _asset_dict(asset, full=True)
+
+
+@router.put("/assets/{asset_id}")
+def update_asset(asset_id: str, body: AssetUpdateBody) -> dict[str, Any]:
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    if body.filename is not None:
+        try:
+            asset.filename = config.normalize_asset_filename(body.filename)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    if body.category is not None:
+        asset.category = body.category.strip()
+    if body.width is not None:
+        asset.width = int(body.width)
+    if body.height is not None:
+        asset.height = int(body.height)
+    if body.seed is not None:
+        asset.seed = body.seed.strip()
+    if body.subject is not None:
+        asset.subject = body.subject.strip()
+    if body.enabled is not None:
+        asset.enabled = body.enabled
+    if body.remove_bg_mode is not None:
+        asset.remove_bg_mode = body.remove_bg_mode
+    if body.positive is not None:
+        asset.positive = body.positive
+    if body.negative is not None:
+        asset.negative = body.negative
+    if body.positive_g is not None:
+        asset.positive_g = body.positive_g
+    if body.positive_l is not None:
+        asset.positive_l = body.positive_l
+    if body.gen_mode is not None:
+        mode = body.gen_mode.strip().lower()
+        if mode not in ("txt2img", "img2img", "redraw"):
+            raise HTTPException(400, "gen_mode 须为 txt2img、img2img 或 redraw")
+        asset.gen_mode = mode
+        asset.ref_image_use_source = False
+    if body.ref_image is not None:
+        asset.ref_image = body.ref_image.strip()
+    if body.ref_image_use_source is not None:
+        asset.ref_image_use_source = bool(body.ref_image_use_source)
+    if body.img2img_denoise is not None:
+        d = float(body.img2img_denoise)
+        if d < 0.01 or d > 1.0:
+            raise HTTPException(400, "img2img_denoise 须在 0.01–1.0")
+        asset.img2img_denoise = d
+    if asset.width < 32 or asset.height < 32 or asset.width > 4096 or asset.height > 4096:
+        raise HTTPException(400, "尺寸须在 32–4096")
+    try:
+        config.update_asset(asset)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    reload_config_manager()
+    log_bus.log(f"已保存资源: {asset.id}", kind="操作")
+    return _asset_dict(asset, full=True)
+
+
+@router.post("/assets/{asset_id}/rename")
+def rename_asset(asset_id: str, body: AssetRenameBody) -> dict[str, Any]:
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    try:
+        renamed = config.rename_asset_files(asset, body.filename)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    config._update_asset_dict(asset)
+    config.save()
+    reload_config_manager()
+    log_bus.log(
+        f"已重命名资源: {asset.id} → {asset.filename}（{len(renamed)} 个文件）",
+        kind="操作",
+    )
+    return {"asset": _asset_dict(asset, full=True), "renamed": renamed, "filename": asset.filename}
+
+
+@router.get("/assets/{asset_id}/move-preview")
+def move_asset_preview(asset_id: str, category: str = Query(...)) -> dict[str, Any]:
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    try:
+        return config.preview_move_asset_to_category(asset, category.strip())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/assets/{asset_id}/move-category")
+def move_asset_category(asset_id: str, body: MoveAssetCategoryBody) -> dict[str, Any]:
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    target = body.category.strip()
+    if not target:
+        raise HTTPException(400, "目标分类不能为空")
+    try:
+        result = config.move_asset_to_category(asset, target)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    reload_config_manager()
+    asset = config.asset_by_id(asset_id)
+    assert asset is not None
+    log_bus.log(
+        f"已移动资源: {asset.id} → 分类 {target}（{len(result.get('moved', []))} 个文件）",
+        kind="操作",
+    )
+    return {
+        "asset": _asset_dict(asset, full=True),
+        "moved": result.get("moved", []),
+        "skipped": result.get("skipped", []),
+        "from_category": result.get("from_category"),
+        "to_category": result.get("to_category"),
+    }
+
+
+@router.post("/assets")
+def create_asset(body: NewAssetBody) -> dict[str, Any]:
+    fn = body.filename.strip()
+    if not fn:
+        raise HTTPException(400, "文件名不能为空")
+    if not fn.lower().endswith(".png"):
+        fn += ".png"
+    try:
+        asset = get_config_manager().add_asset(
+            filename=fn,
+            category=body.category,
+            width=body.width,
+            height=body.height,
+            subject=body.subject,
+            enabled=body.enabled,
+        )
+        reload_config_manager()
+        log_bus.log(f"新建资源: {asset.id}", kind="操作")
+        return _asset_dict(asset, full=True)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.delete("/assets/{asset_id}")
+def delete_asset(asset_id: str) -> dict[str, str]:
+    config = get_config_manager()
+    if not config.asset_by_id(asset_id):
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    config.delete_asset(asset_id)
+    reload_config_manager()
+    log_bus.log(f"已删除资源配置: {asset_id}", kind="操作")
+    return {"status": "deleted"}
+
+
+@router.post("/assets/{asset_id}/duplicate")
+def duplicate_asset(asset_id: str) -> dict[str, Any]:
+    import shutil
+    from paths import WORKFLOWS_DIR
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    base = Path(asset.filename).stem
+    new_fn = f"{base}_copy.png"
+    n = 1
+    while config.asset_by_filename(new_fn):
+        new_fn = f"{base}_copy{n}.png"
+        n += 1
+    clone = config.add_asset(
+        filename=new_fn,
+        category=asset.category,
+        width=asset.width,
+        height=asset.height,
+        subject=asset.subject,
+        positive=asset.positive,
+        negative=asset.negative,
+        workflow=asset.workflow,
+        seed=asset.seed,
+        enabled=asset.enabled,
+    )
+    clone.gen_mode = getattr(asset, "gen_mode", "txt2img")
+    clone.ref_image = getattr(asset, "ref_image", "")
+    clone.ref_image_use_source = bool(getattr(asset, "ref_image_use_source", False))
+    clone.img2img_denoise = getattr(asset, "img2img_denoise", 0.65)
+    clone.positive_g = asset.positive_g
+    clone.positive_l = asset.positive_l
+    clone.remove_bg_mode = asset.remove_bg_mode
+    wf_src = config.workflow_file_for_asset(asset)
+    wf_dst = WORKFLOWS_DIR / "assets" / f"{clone.id}.json"
+    if wf_src.is_file():
+        wf_dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(wf_src, wf_dst)
+        clone.workflow = f"workflows/assets/{clone.id}.json"
+    config.update_asset(clone)
+    reload_config_manager()
+    log_bus.log(f"复制资源: {clone.id}", kind="操作")
+    return _asset_dict(clone, full=True)
+
+
+@router.post("/assets/status")
+def assets_status(body: dict[str, Any]) -> dict[str, Any]:
+    config = get_config_manager()
+    ids = body.get("ids") or []
+    out: dict[str, dict[str, dict[str, Any]]] = {}
+
+    def _fingerprint(path: Path) -> str | None:
+        if not path.is_file():
+            return None
+        try:
+            digest = hashlib.md5()
+            with path.open("rb") as fh:
+                for chunk in iter(lambda: fh.read(65536), b""):
+                    digest.update(chunk)
+            return digest.hexdigest()
+        except OSError:
+            return None
+
+    def _slot(path: Path, state: str) -> dict[str, Any]:
+        return {
+            "state": state,
+            "exists": state in ("ok", "modified", "outdated"),
+            "dir": str(path.parent),
+            "file": str(path),
+        }
+
+    for aid in ids:
+        asset = config.asset_by_id(str(aid))
+        if not asset:
+            continue
+        src, inbox, unity = config.resolve_paths(asset)
+        src_fp = _fingerprint(src)
+        in_fp = _fingerprint(inbox)
+        un_fp = _fingerprint(unity)
+
+        source_state = "ok" if src_fp else "none"
+
+        if not in_fp:
+            inbox_state = "missing"
+        elif src_fp and in_fp == src_fp:
+            inbox_state = "ok"
+        else:
+            inbox_state = "modified"
+
+        if not un_fp:
+            unity_state = "missing"
+        elif in_fp and un_fp == in_fp:
+            unity_state = "ok"
+        else:
+            unity_state = "outdated"
+
+        out[asset.id] = {
+            "source": _slot(src, source_state),
+            "inbox": _slot(inbox, inbox_state),
+            "unity": _slot(unity, unity_state),
+        }
+
+    return {"status": out}
+
+
+@router.get("/assets/{asset_id}/preview.png")
+def asset_preview(
+    asset_id: str,
+    source: PreviewSource = Query("inbox"),
+    max: int = Query(PREVIEW_MAX, ge=64, le=2048),
+) -> Response:
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    try:
+        data = preview_png_bytes(config, asset, source=source, max_size=max)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return Response(content=data, media_type="image/png")
+
+
+@router.get("/assets/{asset_id}/paths")
+def asset_paths(asset_id: str) -> dict[str, str]:
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    src, inbox, unity = config.resolve_paths(asset)
+    return {"source": str(src), "inbox": str(inbox), "unity": str(unity)}
+
+
+@router.get("/assets/{asset_id}/info")
+def asset_info(asset_id: str) -> dict[str, Any]:
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    return _asset_info_dict(config, asset)
+
+
+# ── Workflow ─────────────────────────────────────────────
+
+
+@router.get("/assets/{asset_id}/workflow")
+def get_workflow(asset_id: str) -> dict[str, Any]:
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    path = config.workflow_file_for_asset(asset)
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    return {"path": str(path), "text": text}
+
+
+@router.put("/assets/{asset_id}/workflow")
+def put_workflow(asset_id: str, body: dict[str, Any]) -> dict[str, str]:
+    from pipeline_core import PipelineCore
+    from workflow_engine import validate_workflow_json
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    text = str(body.get("text", ""))
+    data, err = validate_workflow_json(text)
+    if err:
+        raise HTTPException(400, err)
+    assert data is not None
+    clean = {k: v for k, v in data.items() if not str(k).startswith("_")}
+    PipelineCore(config).save_asset_workflow(asset, clean)
+    log_bus.log(f"工作流已保存: {asset.id}", kind="操作")
+    return {"status": "saved"}
+
+
+@router.post("/assets/{asset_id}/workflow/validate")
+def validate_workflow(asset_id: str, body: dict[str, Any]) -> dict[str, str]:
+    from workflow_engine import validate_workflow_json
+
+    _, err = validate_workflow_json(str(body.get("text", "")))
+    if err:
+        raise HTTPException(400, err)
+    return {"status": "ok"}
+
+
+@router.get("/assets/{asset_id}/workflow/default")
+def default_workflow(asset_id: str) -> dict[str, str]:
+    from config_manager import GEN_MODES_IMG2IMG, DEFAULT_IMG2IMG_WORKFLOW
+    from paths import WORKFLOWS_DIR
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    gen_mode = getattr(asset, "gen_mode", "txt2img") or "txt2img"
+    if gen_mode in GEN_MODES_IMG2IMG:
+        rel = DEFAULT_IMG2IMG_WORKFLOW
+    else:
+        rel = "workflows/_default_sdxl_api.json"
+        cat = config.category_by_id(asset.category)
+        if cat and cat.default_workflow:
+            rel = cat.default_workflow
+    p = WORKFLOWS_DIR / Path(rel).name
+    if not p.is_file():
+        p = WORKFLOWS_DIR / ("_default_sdxl_img2img_api.json" if gen_mode in GEN_MODES_IMG2IMG else "_default_sdxl_api.json")
+    text = p.read_text(encoding="utf-8") if p.is_file() else ""
+    return {"text": text}
+
+
+# ── Postprocess ─────────────────────────────────────────────
+
+
+def _ensure_inbox_for_postprocess(config: Any, asset: Any) -> Path:
+    """后处理仅编辑 inbox；若 inbox 缺失则从 source 复制（不修改 source）。"""
+    src, inbox, _unity = config.resolve_paths(asset)
+    if inbox.is_file():
+        return inbox
+    if not src.is_file():
+        raise HTTPException(400, f"无 inbox 且 source 不存在: {asset.filename}")
+    inbox.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, inbox)
+    log_bus.log(f"已从 source 初始化 inbox: {asset.filename}", kind="操作")
+    return inbox
+
+
+def _pp_resolver(config: Any, asset: Any, subject: str | None = None) -> Any:
+    from postprocess.engine import AssetImageResolver
+
+    src, inbox, unity = config.resolve_paths(asset)
+    subj_path = Path(subject) if subject else None
+    if subj_path is None or not subj_path.is_file():
+        if inbox.is_file():
+            subj_path = inbox
+    return AssetImageResolver(
+        art_root=config.art_root(),
+        asset_source=src if src.is_file() else None,
+        asset_inbox=inbox if inbox.is_file() else None,
+        asset_unity=unity if unity.is_file() else None,
+        subject_path=subj_path,
+    )
+
+
+def _resolve_postprocess_stack(
+    config: Any,
+    asset: Any,
+    stack_body: dict[str, Any] | None = None,
+) -> Any:
+    """优先用请求体 stack（编辑器内存态），否则读配置，再退回默认模板。"""
+    from postprocess.models import stack_from_dict
+
+    if stack_body:
+        stack = stack_from_dict(stack_body)
+        if stack:
+            return stack
+    stack = config.get_postprocess_stack(asset.id)
+    if not stack:
+        stack = config.default_postprocess_stack(asset)
+    return stack
+
+
+@router.get("/assets/{asset_id}/postprocess")
+def get_postprocess(asset_id: str) -> dict[str, Any]:
+    from postprocess.models import stack_to_dict
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    _ensure_inbox_for_postprocess(config, asset)
+    stack = config.get_postprocess_stack(asset_id)
+    if not stack:
+        stack = config.default_postprocess_stack(asset)
+    return {"stack": stack_to_dict(stack)}
+
+
+@router.put("/assets/{asset_id}/postprocess")
+def put_postprocess(asset_id: str, body: dict[str, Any]) -> dict[str, str]:
+    from postprocess.models import stack_from_dict
+
+    config = get_config_manager()
+    if not config.asset_by_id(asset_id):
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    stack = stack_from_dict(body.get("stack"))
+    if not stack:
+        raise HTTPException(400, "无效 stack")
+    config.set_postprocess_stack(asset_id, stack)
+    reload_config_manager()
+    return {"status": "saved"}
+
+
+@router.post("/assets/{asset_id}/postprocess/preview")
+def postprocess_preview(asset_id: str, body: dict[str, Any]) -> Response:
+    """编辑器实时预览（不写入配置）。"""
+    import io
+
+    from postprocess.engine import render_stack, stack_checkerboard
+    from postprocess.models import stack_from_dict
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    _ensure_inbox_for_postprocess(config, asset)
+    stack = stack_from_dict(body.get("stack"))
+    if not stack:
+        raise HTTPException(400, "无效 stack")
+    resolver = _pp_resolver(config, asset, body.get("subject_path"))
+    solo = body.get("solo_layer_id") or None
+    try:
+        doc = render_stack(stack, resolver, solo_layer_id=solo)
+        bg = stack_checkerboard(stack.canvas_width, stack.canvas_height)
+        bg.alpha_composite(doc)
+        buf = io.BytesIO()
+        bg.save(buf, format="PNG", optimize=True)
+        data = buf.getvalue()
+    except Exception as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return Response(content=data, media_type="image/png")
+
+
+@router.post("/assets/{asset_id}/postprocess/bounds")
+def postprocess_bounds(asset_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    """图层边界（命中测试 / 选框）。"""
+    from PIL import Image
+
+    from postprocess.engine import layer_bounds
+    from postprocess.models import layer_image_source, stack_from_dict
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    stack = stack_from_dict(body.get("stack"))
+    if not stack:
+        raise HTTPException(400, "无效 stack")
+    resolver = _pp_resolver(config, asset, body.get("subject_path"))
+    scratch = Image.new(
+        "RGBA",
+        (max(stack.canvas_width, 4), max(stack.canvas_height, 4)),
+        (0, 0, 0, 0),
+    )
+    layers_out: list[dict[str, Any]] = []
+    raw_sizes: dict[str, dict[str, int]] = {}
+    for layer in stack.layers:
+        if layer.type == "image":
+            raw = resolver.resolve(layer_image_source(layer))
+            if raw:
+                raw_sizes[layer.id] = {"w": raw.width, "h": raw.height}
+        bounds = layer_bounds(layer, stack, resolver, scratch=scratch)
+        if bounds:
+            layers_out.append(
+                {
+                    "id": layer.id,
+                    "x": bounds.x,
+                    "y": bounds.y,
+                    "w": bounds.w,
+                    "h": bounds.h,
+                    "visible": layer.visible,
+                    "locked": layer.locked,
+                    "type": layer.type,
+                    "is_subject": layer.is_subject,
+                }
+            )
+    return {
+        "canvas": {"width": stack.canvas_width, "height": stack.canvas_height},
+        "layers": layers_out,
+        "raw_sizes": raw_sizes,
+    }
+
+
+@router.post("/assets/{asset_id}/postprocess/layer-matte")
+def postprocess_layer_matte(asset_id: str, body: LayerMatteBody) -> dict[str, Any]:
+    from postprocess.matte import apply_layer_matte, resolve_layer_image_path
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    inbox = _ensure_inbox_for_postprocess(config, asset)
+    stack = _resolve_postprocess_stack(config, asset, body.stack)
+    layer = next((l for l in stack.layers if l.id == body.layer_id), None)
+    if not layer or layer.type != "image":
+        raise HTTPException(400, "图层不存在或非图片层")
+    if layer.locked:
+        raise HTTPException(400, "图层已锁定")
+
+    path = resolve_layer_image_path(
+        art_root=config.art_root(),
+        layer=layer,
+        inbox_path=inbox,
+    )
+    if not path:
+        raise HTTPException(404, "图层图片不存在")
+
+    mode = body.mode.strip().lower()
+    if mode not in ("border", "seed"):
+        raise HTTPException(400, "mode 须为 border 或 seed")
+    if mode == "seed" and (body.seed_x is None or body.seed_y is None):
+        raise HTTPException(400, "seed 模式需要 seed_x / seed_y")
+
+    try:
+        result = apply_layer_matte(
+            path,
+            mode=mode,
+            seed_x=body.seed_x,
+            seed_y=body.seed_y,
+            color_tol=float(body.color_tol),
+            step_tol=float(body.step_tol),
+            feather=int(body.feather),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    log_bus.log(f"图层抠图 ({mode}): {layer.name} · {asset.filename}", kind="操作")
+    return {"status": "ok", "mode": mode, **result}
+
+
+def _postprocess_layer_raw_image(
+    config: Any,
+    asset: Any,
+    layer_id: str,
+    stack_body: dict[str, Any] | None = None,
+) -> tuple[bytes, Any]:
+    import io
+
+    from PIL import Image
+
+    from postprocess.matte import resolve_layer_image_path
+
+    inbox = _ensure_inbox_for_postprocess(config, asset)
+    stack = _resolve_postprocess_stack(config, asset, stack_body)
+    layer = next((l for l in stack.layers if l.id == layer_id), None)
+    if not layer or layer.type != "image":
+        raise HTTPException(404, f"图层不存在或非图片: {layer_id}")
+    path = resolve_layer_image_path(
+        art_root=config.art_root(),
+        layer=layer,
+        inbox_path=inbox,
+    )
+    if not path or not path.is_file():
+        raise HTTPException(404, "图层图片不存在")
+    with Image.open(path) as im:
+        im.load()
+        rgba = im.convert("RGBA")
+    buf = io.BytesIO()
+    rgba.save(buf, format="PNG", optimize=True)
+    return buf.getvalue(), layer
+
+
+@router.post("/assets/{asset_id}/postprocess/layer-raw")
+def layer_raw_png_post(asset_id: str, body: LayerRawBody) -> Response:
+    """任意图片图层的原图 PNG（编辑器内存 stack）。"""
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    data, _layer = _postprocess_layer_raw_image(config, asset, body.layer_id, body.stack)
+    return Response(content=data, media_type="image/png")
+
+
+@router.get("/assets/{asset_id}/postprocess/layer-raw.png")
+def layer_raw_png(asset_id: str, layer_id: str) -> Response:
+    """任意图片图层的原图 PNG（兼容 GET，使用已保存/默认 stack）。"""
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    data, _layer = _postprocess_layer_raw_image(config, asset, layer_id)
+    return Response(content=data, media_type="image/png")
+
+
+@router.post("/assets/{asset_id}/postprocess/layer-restore-image")
+def layer_restore_image(asset_id: str, body: LayerRestoreImageBody) -> dict[str, str]:
+    """写回图层 PNG（撤销/重做）。"""
+    import base64
+    import binascii
+
+    from postprocess.matte import resolve_layer_image_path
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    inbox = _ensure_inbox_for_postprocess(config, asset)
+    stack = _resolve_postprocess_stack(config, asset, body.stack)
+    layer = next((l for l in stack.layers if l.id == body.layer_id), None)
+    if not layer or layer.type != "image":
+        raise HTTPException(404, f"图层不存在或非图片: {body.layer_id}")
+    if layer.locked:
+        raise HTTPException(400, "图层已锁定")
+    path = resolve_layer_image_path(
+        art_root=config.art_root(),
+        layer=layer,
+        inbox_path=inbox,
+    )
+    if not path:
+        raise HTTPException(404, "图层图片不存在")
+    raw_b64 = body.image_b64.strip()
+    if raw_b64.startswith("data:"):
+        raw_b64 = raw_b64.split(",", 1)[-1]
+    try:
+        data = base64.b64decode(raw_b64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(400, "无效 image_b64") from exc
+    if len(data) < 8:
+        raise HTTPException(400, "图片数据过短")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return {"status": "ok", "path": str(path)}
+
+
+@router.post("/assets/{asset_id}/postprocess/restore-from-source")
+def restore_postprocess_from_source(asset_id: str) -> dict[str, Any]:
+    """用 source 原图覆盖 inbox，并重置后处理配置（source 只读，仅写 inbox）。"""
+    from postprocess.models import stack_to_dict
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    src, inbox, _unity = config.resolve_paths(asset)
+    if not src.is_file():
+        raise HTTPException(400, f"source 原图不存在: {src.name}")
+    inbox.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, inbox)
+    stack = config.default_postprocess_stack(asset)
+    config.set_postprocess_stack(asset_id, stack)
+    reload_config_manager()
+    log_bus.log(f"已从 source 还原 inbox 并重置后处理: {asset.filename}", kind="操作")
+    return {"path": str(inbox), "stack": stack_to_dict(stack)}
+
+
+@router.get("/assets/{asset_id}/postprocess/subject-raw.png")
+def subject_raw_png(asset_id: str) -> Response:
+    """主体 inbox 图（裁切编辑器用，不读 source）。"""
+    import io
+
+    from postprocess.models import ASSET_SUBJECT_SOURCE
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    _ensure_inbox_for_postprocess(config, asset)
+    resolver = _pp_resolver(config, asset)
+    raw = resolver.resolve(ASSET_SUBJECT_SOURCE)
+    if raw is None:
+        raise HTTPException(404, "无主体原图")
+    buf = io.BytesIO()
+    raw.save(buf, format="PNG", optimize=True)
+    return Response(content=buf.getvalue(), media_type="image/png")
+
+
+@router.post("/assets/{asset_id}/postprocess/apply")
+def apply_postprocess(
+    asset_id: str,
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from postprocess.engine import render_stack_to_png_bytes
+    from postprocess.models import stack_from_dict
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    body = body or {}
+    _ensure_inbox_for_postprocess(config, asset)
+    if "stack" in body:
+        stack = stack_from_dict(body["stack"])
+        if stack:
+            config.set_postprocess_stack(asset_id, stack)
+    else:
+        stack = config.get_postprocess_stack(asset_id) or config.default_postprocess_stack(asset)
+    resolver = _pp_resolver(config, asset, body.get("subject_path"))
+    _src, inbox, unity = config.resolve_paths(asset)
+    data = render_stack_to_png_bytes(stack, resolver)
+    inbox.parent.mkdir(parents=True, exist_ok=True)
+    inbox.write_bytes(data)
+    config.set_postprocess_stack(asset_id, stack)
+    reload_config_manager()
+    log_bus.log(f"后处理已写入 inbox: {asset.filename}", kind="操作")
+    result: dict[str, Any] = {"path": str(inbox)}
+    if body.get("export_unity"):
+        from pipeline_core import PipelineCore
+
+        if pipeline_runner.is_busy():
+            raise HTTPException(409, "任务进行中")
+        pipeline = PipelineCore(config)
+        ok = pipeline.export_one(asset, log=lambda m: log_bus.log(m, kind="操作"))
+        if not ok:
+            raise HTTPException(400, f"无法导出 Unity：inbox 不存在 ({inbox.name})")
+        result["unity_path"] = str(unity)
+        log_bus.log(f"已导出 Unity: {asset.filename}", kind="操作")
+    return result
+
+
+@router.post("/assets/{asset_id}/export-unity")
+def export_asset_unity(asset_id: str) -> dict[str, Any]:
+    from pipeline_core import PipelineCore
+
+    if pipeline_runner.is_busy():
+        raise HTTPException(409, "任务进行中")
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    _src, inbox, unity = config.resolve_paths(asset)
+    pipeline = PipelineCore(config)
+    ok = pipeline.export_one(asset, log=lambda m: log_bus.log(m, kind="操作"))
+    if not ok:
+        raise HTTPException(400, f"无法导出：inbox 不存在 ({inbox.name})")
+    log_bus.log(f"已导出 Unity: {asset.filename}", kind="操作")
+    return {"status": "ok", "path": str(unity)}
+
+
+@router.get("/postprocess/templates")
+def postprocess_templates() -> dict[str, Any]:
+    from postprocess.templates import BUILTIN_TEMPLATES
+
+    return {"templates": list(BUILTIN_TEMPLATES.keys())}
+
+
+@router.get("/postprocess/templates/{template_id}")
+def postprocess_template(template_id: str, width: int = 512, height: int = 512) -> dict[str, Any]:
+    from postprocess.models import stack_to_dict
+    from postprocess.templates import builtin_template
+
+    stack = builtin_template(template_id, width, height)
+    return {"stack": stack_to_dict(stack)}
+
+
+@router.get("/postprocess/fonts")
+def postprocess_fonts() -> dict[str, Any]:
+    from postprocess.fonts import list_system_fonts
+
+    return {"fonts": list_system_fonts()[:120]}
+
+
+@router.post("/pick-image-file")
+def pick_image_file(body: PickImageFileBody | None = None) -> dict[str, Any]:
+    config = get_config_manager()
+    art_root = config.art_root()
+    initial = art_root
+    if body and body.initial_dir:
+        cand = Path(body.initial_dir).expanduser()
+        if cand.is_dir():
+            initial = cand
+        elif cand.parent.is_dir():
+            initial = cand.parent
+    picked = _pick_image_path(initial)
+    if not picked:
+        return {"cancelled": True}
+    if not picked.is_file():
+        raise HTTPException(400, "所选路径不是文件")
+    return {
+        "cancelled": False,
+        "path": _rel_to_art_root(picked, art_root),
+        "absolute": str(picked.resolve()),
+    }
+
+
+@router.post("/postprocess/upload-image")
+async def upload_postprocess_image(file: UploadFile = File(...)) -> dict[str, str]:
+    config = get_config_manager()
+    art_root = config.art_root()
+    dest_dir = art_root / "postprocess" / "layers"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_name = Path(file.filename or "image.png").name
+    suffix = Path(raw_name).suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+        suffix = ".png"
+    dest = dest_dir / f"{uuid.uuid4().hex[:12]}{suffix}"
+
+    try:
+        content = await file.read()
+        if not content:
+            raise HTTPException(400, "空文件")
+        dest.write_bytes(content)
+    except HTTPException:
+        raise
+    except OSError as exc:
+        raise HTTPException(500, f"写入失败: {exc}") from exc
+
+    rel = dest.relative_to(art_root.resolve()).as_posix()
+    log_bus.log(f"已导入后处理图片: {rel}", kind="操作")
+    return {"path": rel}
+
+
+# ── AI ─────────────────────────────────────────────
+
+AI_MODES = ("free", "prompt", "refine", "workflow", "basic")
+
+_ai_histories: dict[str, list[dict[str, str]]] = {}
+
+_CAT_SETTING_KEYS = (
+    "source",
+    "inbox",
+    "unity",
+    "checkpoint",
+    "alpha_matte",
+    "positive_common",
+    "negative_common",
+)
+
+
+def _ai_hist_key(asset_id: str, mode: str) -> str:
+    m = mode if mode in AI_MODES else "free"
+    return f"{asset_id}:{m}"
+
+
+@router.get("/ai/history/{asset_id}")
+def ai_history(asset_id: str, mode: str = "free") -> dict[str, Any]:
+    return {"history": _ai_histories.get(_ai_hist_key(asset_id, mode), [])}
+
+
+@router.delete("/ai/history/{asset_id}")
+def ai_clear(asset_id: str, mode: str | None = None) -> dict[str, str]:
+    if mode and mode in AI_MODES:
+        _ai_histories.pop(_ai_hist_key(asset_id, mode), None)
+    else:
+        for m in AI_MODES:
+            _ai_histories.pop(_ai_hist_key(asset_id, m), None)
+        _ai_histories.pop(asset_id, None)
+    return {"status": "cleared"}
+
+
+def _apply_ai_basic_updates(config: Any, asset: Any, updates: dict[str, Any], applied: list[str]) -> None:
+    from ai_assistant import AiAssistantError, _ai_bool, _ai_update_present
+
+    if _ai_update_present(updates.get("filename")):
+        fn = str(updates["filename"]).strip()
+        if not fn.lower().endswith(".png"):
+            fn = f"{fn}.png" if fn else asset.filename
+        asset.filename = fn
+        applied.append("filename")
+    if _ai_update_present(updates.get("category")):
+        cat_id = str(updates["category"]).strip()
+        if not config.category_by_id(cat_id):
+            raise HTTPException(400, f"AI 返回未知分类: {cat_id}")
+        asset.category = cat_id
+        applied.append("category")
+    if _ai_update_present(updates.get("width")):
+        w = int(updates["width"])
+        if w < 32 or w > 4096:
+            raise HTTPException(400, "AI 返回 width 须在 32–4096")
+        asset.width = w
+        applied.append("width")
+    if _ai_update_present(updates.get("height")):
+        h = int(updates["height"])
+        if h < 32 or h > 4096:
+            raise HTTPException(400, "AI 返回 height 须在 32–4096")
+        asset.height = h
+        applied.append("height")
+    if "seed" in updates and updates.get("seed") is not None:
+        asset.seed = str(updates["seed"]).strip()
+        applied.append("seed")
+    if _ai_update_present(updates.get("enabled")):
+        try:
+            asset.enabled = _ai_bool(updates["enabled"])
+        except AiAssistantError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        applied.append("enabled")
+    if _ai_update_present(updates.get("remove_bg_mode")):
+        mode = str(updates["remove_bg_mode"]).strip().lower()
+        if mode not in ("inherit", "remove", "keep"):
+            raise HTTPException(400, "remove_bg_mode 须为 inherit / remove / keep")
+        asset.remove_bg_mode = mode
+        applied.append("remove_bg_mode")
+    if _ai_update_present(updates.get("subject")):
+        asset.subject = str(updates["subject"]).strip()
+        applied.append("subject")
+
+
+def _apply_ai_prompt_updates(asset: Any, updates: dict[str, Any], applied: list[str]) -> None:
+    from ai_assistant import _ai_update_present
+
+    for key in ("positive_g", "positive_l", "positive", "negative", "subject"):
+        if _ai_update_present(updates.get(key)):
+            setattr(asset, key, str(updates[key]).strip())
+            applied.append(key)
+
+
+def _apply_ai_gen_updates(asset: Any, updates: dict[str, Any], applied: list[str]) -> None:
+    from ai_assistant import _ai_update_present
+
+    if _ai_update_present(updates.get("gen_mode")):
+        mode = str(updates["gen_mode"]).strip().lower()
+        if mode not in ("txt2img", "img2img", "redraw"):
+            raise HTTPException(400, "gen_mode 须为 txt2img / img2img / redraw")
+        asset.gen_mode = mode
+        asset.ref_image_use_source = False
+        applied.append("gen_mode")
+    if _ai_update_present(updates.get("ref_image")):
+        asset.ref_image = str(updates["ref_image"]).strip()
+        applied.append("ref_image")
+    if _ai_update_present(updates.get("img2img_denoise")):
+        d = float(updates["img2img_denoise"])
+        if d < 0.01 or d > 1.0:
+            raise HTTPException(400, "img2img_denoise 须在 0.01–1.0")
+        asset.img2img_denoise = d
+        applied.append("img2img_denoise")
+
+
+def _apply_ai_category_updates(cat: Any, cat_updates: dict[str, Any], applied: list[str]) -> bool:
+    from ai_assistant import _ai_update_present
+
+    if not cat or not isinstance(cat_updates, dict):
+        return False
+    changed = False
+    for key in _CAT_SETTING_KEYS:
+        if not _ai_update_present(cat_updates.get(key)):
+            continue
+        val = cat_updates[key]
+        if key == "alpha_matte":
+            s = str(val).strip().lower()
+            if s in ("default", "border", "on", "true", "yes", "1"):
+                val = "border"
+            elif s in ("none", "off", "false", "no", "0"):
+                val = "none"
+            else:
+                val = str(val).strip()
+        elif key in ("positive_common", "negative_common"):
+            val = str(val)
+        else:
+            val = str(val).strip()
+        setattr(cat, key, val)
+        applied.append(f"cat.{key}")
+        changed = True
+    return changed
+
+
+def _apply_ai_workflow_update(config: Any, asset: Any, updates: dict[str, Any], applied: list[str]) -> None:
+    from pipeline_core import PipelineCore
+
+    if updates.get("workflow") and isinstance(updates["workflow"], dict):
+        PipelineCore(config).save_asset_workflow(asset, updates["workflow"])
+        applied.append("workflow")
+
+
+@router.post("/ai/chat")
+def ai_chat(body: AiChatBody) -> dict[str, Any]:
+    from ai_assistant import AiAssistantError, build_context_message, chat, parse_ai_response
+
+    config = get_config_manager()
+    asset = config.asset_by_id(body.asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {body.asset_id}")
+    d = config.defaults
+    api_key = str(d.get("deepseek_api_key", ""))
+    model = str(d.get("deepseek_model", ""))
+    mode = body.mode if body.mode in AI_MODES else "free"
+    mode_prefix = {
+        "free": (
+            "【任务：根据用户意图配置当前资源；可同时填写基本信息、当前分类的 category_settings、"
+            "提示词、gen_mode/ref_image/img2img_denoise、工作流。updates 中未改字段设为 null；用户未提及的不要改】\n"
+        ),
+        "prompt": "【任务：根据描述生成或重写 ComfyUI 提示词（含 subject / 正负向）】\n",
+        "refine": "【任务：在现有提示词基础上按用户要求微调，保留未提及的合理内容】\n",
+        "workflow": "【任务：处理 ComfyUI 工作流 JSON；仅用户明确要求改结构时才返回 workflow】\n",
+        "basic": (
+            "【任务：填写或修改资源「基本信息」页（subject、filename、分类、宽×高、seed、启用、剔除背景）；"
+            "updates 中未改字段设为 null；不要改 prompt/workflow/category_settings】\n"
+        ),
+    }.get(mode, "")
+    user_text = body.message.strip()
+    if not user_text:
+        raise HTTPException(400, "消息不能为空")
+    cat = config.category_by_id(asset.category)
+    wf_path = config.workflow_file_for_asset(asset)
+    wf_summary = wf_path.name if wf_path.is_file() else "默认"
+    cat_opts = ", ".join(f"{c.id}({c.label})" for c in config.categories())
+    ctx = build_context_message(
+        asset_id=asset.id,
+        filename=asset.filename,
+        category=asset.category,
+        category_label=cat.label if cat else asset.category,
+        width=asset.width,
+        height=asset.height,
+        subject=asset.subject,
+        positive=asset.positive,
+        negative=asset.negative,
+        positive_g=asset.positive_g,
+        positive_l=asset.positive_l,
+        workflow_summary=wf_summary,
+        seed=asset.seed or "",
+        enabled=asset.enabled,
+        remove_bg_mode=asset.remove_bg_mode,
+        category_options=cat_opts,
+        category_source=cat.source if cat else "",
+        category_inbox=cat.inbox if cat else "",
+        category_unity=cat.unity if cat else "",
+        category_checkpoint=cat.checkpoint if cat else "",
+        category_alpha_matte=cat.alpha_matte if cat else "",
+        category_positive_common=cat.positive_common if cat else "",
+        category_negative_common=cat.negative_common if cat else "",
+        gen_mode=getattr(asset, "gen_mode", "txt2img"),
+        ref_image=getattr(asset, "ref_image", ""),
+        img2img_denoise=float(getattr(asset, "img2img_denoise", 0.65)),
+    )
+    hist_key = _ai_hist_key(body.asset_id, mode)
+    hist = _ai_histories.setdefault(hist_key, [])
+    messages = [{"role": "system", "content": __import__("ai_assistant").SYSTEM_PROMPT}]
+    messages.append({"role": "user", "content": ctx})
+    for item in hist[-10:]:
+        messages.append({"role": item["role"], "content": item["content"]})
+    messages.append({"role": "user", "content": f"{mode_prefix}{user_text}"})
+    try:
+        raw = chat(messages, api_key=api_key, model=model)
+        message, updates = parse_ai_response(raw)
+    except AiAssistantError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    hist.append({"role": "user", "content": user_text})
+    hist.append({"role": "assistant", "content": message})
+    applied: list[str] = []
+    cat_dirty = False
+    if mode == "basic":
+        _apply_ai_basic_updates(config, asset, updates, applied)
+    elif mode == "free":
+        _apply_ai_basic_updates(config, asset, updates, applied)
+        _apply_ai_prompt_updates(asset, updates, applied)
+        _apply_ai_gen_updates(asset, updates, applied)
+        _apply_ai_workflow_update(config, asset, updates, applied)
+        target_cat = config.category_by_id(asset.category)
+        cat_settings = updates.get("category_settings")
+        if target_cat and isinstance(cat_settings, dict):
+            cat_dirty = _apply_ai_category_updates(target_cat, cat_settings, applied)
+    else:
+        _apply_ai_prompt_updates(asset, updates, applied)
+        if mode == "workflow":
+            _apply_ai_workflow_update(config, asset, updates, applied)
+    asset_dirty = any(not k.startswith("cat.") for k in applied)
+    if asset_dirty:
+        config.update_asset(asset)
+    if cat_dirty:
+        target_cat = config.category_by_id(asset.category)
+        if target_cat:
+            config.update_category(target_cat)
+            config.ensure_category_dirs(target_cat)
+    if asset_dirty or cat_dirty:
+        reload_config_manager()
+    return {"message": message, "applied": applied, "updates": updates}
+
+
+# ── System open ─────────────────────────────────────────────
+
+
+@router.post("/open-path")
+def open_path(body: OpenPathBody) -> dict[str, str]:
+    p = Path(body.path).expanduser()
+    if not p.exists():
+        raise HTTPException(404, "路径不存在")
+    subprocess.run(["open", str(p)], check=False)
+    return {"status": "ok"}
+
+
+@router.get("/categories/{cat_id}/dir/{kind}")
+def category_dir(cat_id: str, kind: str) -> dict[str, str]:
+    config = get_config_manager()
+    cat = config.category_by_id(cat_id)
+    if not cat:
+        raise HTTPException(404, f"未知分类: {cat_id}")
+    if kind == "source":
+        p = config.category_source_path(cat)
+    elif kind == "inbox":
+        p = config.category_inbox_path(cat)
+    elif kind == "unity":
+        p = config.category_unity_path(cat)
+    else:
+        raise HTTPException(400, "kind 须为 source/inbox/unity")
+    return {"path": str(p)}

@@ -1,0 +1,82 @@
+{
+  "_meta": {
+    "description": "SDXL 以图生图默认模板。占位符：{{POSITIVE}} {{NEGATIVE}} {{REF_IMAGE}} {{DENOISE}} {{SEED}} {{CHECKPOINT}} {{FILENAME_PREFIX}} {{STEPS}} {{CFG}} {{SAMPLER}} {{SCHEDULER}}",
+    "format": "comfyui_api"
+  },
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "{{CHECKPOINT}}"
+    }
+  },
+  "8": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "{{REF_IMAGE}}"
+    }
+  },
+  "9": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": ["8", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncodeSDXL",
+    "inputs": {
+      "clip": ["1", 1],
+      "width": 1024,
+      "height": 1024,
+      "crop_w": 0,
+      "crop_h": 0,
+      "target_width": 1024,
+      "target_height": 1024,
+      "text_g": "{{POSITIVE}}",
+      "text_l": "{{POSITIVE}}"
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncodeSDXL",
+    "inputs": {
+      "clip": ["1", 1],
+      "width": 1024,
+      "height": 1024,
+      "crop_w": 0,
+      "crop_h": 0,
+      "target_width": 1024,
+      "target_height": 1024,
+      "text_g": "{{NEGATIVE}}",
+      "text_l": "{{NEGATIVE}}"
+    }
+  },
+  "5": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": "{{SEED}}",
+      "steps": "{{STEPS}}",
+      "cfg": "{{CFG}}",
+      "sampler_name": "{{SAMPLER}}",
+      "scheduler": "{{SCHEDULER}}",
+      "denoise": "{{DENOISE}}",
+      "model": ["1", 0],
+      "positive": ["3", 0],
+      "negative": ["4", 0],
+      "latent_image": ["9", 0]
+    }
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["5", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "7": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": ["6", 0],
+      "filename_prefix": "{{FILENAME_PREFIX}}"
+    }
+  }
+}

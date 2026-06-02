@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>后处理编辑器 · ArtPipeline</title>
+  <link rel="stylesheet" href="/css/app.css" />
+  <link rel="stylesheet" href="/css/effects.css" />
+</head>
+<body class="is-booting">
+  <div class="fx-overlay hidden" id="fx-global-overlay" aria-hidden="true">
+    <div class="fx-overlay-card">
+      <div class="fx-spin-ring" aria-hidden="true"></div>
+      <p class="fx-overlay-msg" data-i18n="splash.reloading">正在加载…</p>
+    </div>
+  </div>
+  <div class="pp-app" id="pp-app">
+    <header class="pp-head">
+      <a class="btn sm ghost" href="/" data-i18n="pp.back">← 返回</a>
+      <h1 id="pp-title" data-i18n="pp.title">后处理</h1>
+      <span class="muted" id="pp-meta"></span>
+      <div class="pp-head-tools">
+        <select id="pp-template" class="search"></select>
+        <button type="button" class="btn sm" id="pp-load-template" data-i18n="pp.loadTemplate">载入模板</button>
+        <div class="lang-switch" role="group">
+          <button type="button" class="lang-btn" data-lang="zh-CN" data-i18n="lang.zh">中文</button>
+          <button type="button" class="lang-btn" data-lang="en-US" data-i18n="lang.en">EN</button>
+        </div>
+      </div>
+    </header>
+
+    <aside class="pp-layers">
+      <div class="panel-head row">
+        <h2><span data-i18n="pp.layers">图层</span> <span class="muted sm" data-i18n="pp.layersHint">上=前景</span></h2>
+      </div>
+      <div class="pp-layer-btns">
+        <button type="button" class="btn sm" id="pp-add-image"><span class="btn-icon"></span> <span data-i18n="pp.addImage">图片</span></button>
+        <button type="button" class="btn sm" id="pp-add-text"><span class="btn-icon"></span> <span data-i18n="pp.addText">文字</span></button>
+      </div>
+      <div id="pp-layer-list"></div>
+    </aside>
+
+    <main class="pp-stage">
+      <div class="pp-canvas-toolbar">
+        <button type="button" class="btn sm ghost" id="pp-zoom-out">−</button>
+        <span class="pill" id="pp-zoom-label">100%</span>
+        <button type="button" class="btn sm ghost" id="pp-zoom-in">+</button>
+        <button type="button" class="btn sm ghost" id="pp-zoom-fit" data-i18n="pp.zoomFit">适应</button>
+        <label class="check-modern check-inline">
+          <input type="checkbox" id="pp-solo" />
+          <span class="check-ui"></span>
+          <span class="check-text">Solo</span>
+        </label>
+        <button type="button" class="btn sm" id="pp-crop-toggle" data-i18n="pp.crop">裁切 (C)</button>
+        <button type="button" class="btn sm" id="pp-matte-toggle" data-i18n="pp.matteWandShort">点选抠图 (M)</button>
+        <span class="muted sm pp-shortcuts" id="pp-hint" data-i18n="pp.shortcuts">Del 删图层 · +/- 视图缩放/文字字号 · Enter 编辑文字 · Esc 取消 · Ctrl+S 保存</span>
+        <div class="pp-toolbar-history">
+          <button type="button" class="btn sm ghost icon-btn-text" id="pp-undo" disabled data-i18n-title="pp.undoTitle" title="撤销">
+            <span aria-hidden="true">↶</span> <span data-i18n="pp.undo">撤销</span>
+          </button>
+          <button type="button" class="btn sm ghost icon-btn-text" id="pp-redo" disabled data-i18n-title="pp.redoTitle" title="重做">
+            <span aria-hidden="true">↷</span> <span data-i18n="pp.redo">重做</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="pp-viewport" id="pp-viewport">
+        <div class="pp-preview-ph" id="pp-preview-ph" data-i18n="pp.loadingPreview">加载预览…</div>
+        <img id="pp-preview" alt="" draggable="false" hidden />
+        <canvas id="pp-overlay"></canvas>
+        <div class="pp-matte-banner hidden" id="pp-matte-banner" data-i18n="pp.matteModeBanner">点选抠图 · 点击要剔除的纯色 · Esc 退出</div>
+      </div>
+
+      <div class="pp-crop-panel hidden" id="pp-crop-panel">
+        <div class="pp-crop-head">
+          <strong data-i18n="pp.cropTitle">主体裁切</strong>
+          <span class="muted sm" data-i18n="pp.cropHelp">拖空白=新建 · 拖选区内=移动 · 拖边角=缩放 · 右键/Esc=取消 · Enter=确认 · Shift=正方形</span>
+        </div>
+        <div class="pp-crop-wrap">
+          <canvas id="pp-crop-canvas"></canvas>
+          <div class="pp-crop-size" id="pp-crop-size">—</div>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn sm" id="pp-crop-commit" data-i18n="pp.cropCommit">确认裁切</button>
+          <button type="button" class="btn sm ghost" id="pp-crop-cancel" data-i18n="pp.cropCancel">取消</button>
+          <span class="muted sm" id="pp-crop-info"></span>
+        </div>
+      </div>
+    </main>
+
+    <aside class="pp-props">
+      <h2 class="panel-head" data-i18n="pp.props">属性</h2>
+      <form id="pp-props-form" class="form-grid pp-props-form">
+        <label class="span2"><span data-i18n="pp.name">名称</span><input name="name" /></label>
+
+        <label class="span2 pp-range-field">
+          <span data-i18n="pp.opacity">不透明度</span>
+          <div class="range-row">
+            <input type="range" name="opacity_slider" min="0" max="100" step="1" />
+            <input name="opacity" type="number" min="0" max="1" step="0.01" class="range-num" />
+          </div>
+        </label>
+
+        <fieldset id="pp-image-fields" class="span2 field-block" hidden>
+          <legend data-i18n="pp.image">图片</legend>
+          <label class="span2 pp-source-row"><span data-i18n="pp.imageSource">图源（相对 ArtPipeline 或 $asset）</span>
+            <div class="pp-source-input">
+              <input name="source" placeholder="postprocess/bg.png" />
+              <button type="button" class="btn sm ghost" id="pp-browse-source" data-i18n="pp.browseImage" data-i18n-title="pp.browseImageTitle" title="选择图片文件">…</button>
+            </div>
+          </label>
+          <fieldset id="pp-matte-fields" class="span2 field-block pp-matte-block">
+            <legend data-i18n="pp.matte">抠图</legend>
+            <p class="muted sm pp-matte-intro" data-i18n="pp.matteIntro">直接修改图层 PNG 的透明通道。外围模式适合纯色底；点选模式在预览上点击要剔除的区域。</p>
+            <label class="span2 pp-range-field">
+              <span data-i18n="pp.matteTolerance">颜色容差</span>
+              <div class="range-row">
+                <input type="range" id="pp-matte-tol" min="8" max="80" step="1" value="34" />
+                <input type="number" id="pp-matte-tol-num" min="8" max="80" step="1" value="34" class="range-num" />
+              </div>
+            </label>
+            <div class="btn-row span2">
+              <button type="button" class="btn sm" id="pp-matte-border" data-i18n="pp.matteBorder">去除外围纯色</button>
+              <button type="button" class="btn sm primary" id="pp-matte-wand" data-i18n="pp.matteWand">进入点选抠图</button>
+            </div>
+            <p class="muted sm pp-matte-hint" id="pp-matte-hint" data-i18n="pp.matteWandHint">点选模式：在预览中点击纯色区域，可连续多次点击；Esc 退出。</p>
+          </fieldset>
+        </fieldset>
+
+        <label><span data-i18n="pp.offsetX">偏移 X</span><input name="offset_x" type="number" step="1" /></label>
+        <label><span data-i18n="pp.offsetY">偏移 Y</span><input name="offset_y" type="number" step="1" /></label>
+        <label class="span2 pp-range-field">
+          <span data-i18n="pp.scale">缩放</span>
+          <div class="range-row">
+            <input type="range" name="scale_slider" min="5" max="300" step="1" />
+            <input name="scale_pct" type="number" min="1" max="800" step="1" class="range-num" />
+            <span class="range-tag" id="scale-tag">100%</span>
+          </div>
+        </label>
+        <div class="btn-row span2">
+          <button type="button" class="btn sm" id="pp-center" data-i18n="pp.center">归位 0,0</button>
+          <button type="button" class="btn sm" id="pp-x0" data-i18n="pp.x0">X→0</button>
+          <button type="button" class="btn sm" id="pp-y0" data-i18n="pp.y0">Y→0</button>
+          <button type="button" class="btn sm" id="pp-scale100" data-i18n="pp.scale100">缩放 100%</button>
+          <button type="button" class="btn sm" id="pp-reset-xform" data-i18n="pp.resetXform">重置变换</button>
+        </div>
+
+        <fieldset id="pp-text-fields" class="span2 field-block" hidden>
+          <legend data-i18n="pp.text">文字</legend>
+          <label class="span2"><span data-i18n="pp.textContent">内容</span><textarea name="text_content" rows="2"></textarea></label>
+          <label><span data-i18n="pp.fontSize">字号</span><input name="font_size" type="number" min="8" max="256" /></label>
+          <label><span data-i18n="pp.color">颜色</span><input name="text_color" type="color" class="input-color" /></label>
+          <label class="span2"><span data-i18n="pp.font">字体</span><select name="font_family" id="pp-fonts"></select></label>
+        </fieldset>
+
+        <fieldset id="pp-crop-fields" class="span2 field-block" hidden>
+          <legend data-i18n="pp.cropRegion">裁切区域</legend>
+          <label><span data-i18n="pp.cropX">X</span><input name="crop_x" type="number" min="0" /></label>
+          <label><span data-i18n="pp.cropY">Y</span><input name="crop_y" type="number" min="0" /></label>
+          <label><span data-i18n="pp.cropW">宽</span><input name="crop_w" type="number" min="1" /></label>
+          <label><span data-i18n="pp.cropH">高</span><input name="crop_h" type="number" min="1" /></label>
+          <div class="btn-row span2">
+            <button type="button" class="btn sm" id="pp-clear-crop" data-i18n="pp.clearCrop">清除裁切</button>
+          </div>
+        </fieldset>
+      </form>
+    </aside>
+
+    <footer class="pp-foot">
+      <button type="button" class="btn" id="pp-restore-source" data-i18n="pp.restoreSource" data-i18n-title="pp.restoreSourceTitle" title="用 source 原图覆盖 inbox，并重置图层">从 source 还原</button>
+      <button type="button" class="btn primary" id="pp-save" data-i18n="pp.saveConfig">保存配置</button>
+      <button type="button" class="btn primary" id="pp-export-unity" data-i18n="pp.exportEngine">导出到游戏引擎</button>
+      <button type="button" class="btn" id="pp-apply" data-i18n="pp.applyInbox">应用到 inbox</button>
+      <span class="muted" id="pp-status" data-i18n="pp.ready">就绪</span>
+    </footer>
+  </div>
+  <script type="module" src="/js/postprocess.js"></script>
+</body>
+</html>

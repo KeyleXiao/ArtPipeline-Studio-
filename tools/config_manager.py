@@ -1,0 +1,805 @@
+#!/usr/bin/env python3
+"""pipeline_config.json 读写与分类/资源管理。"""
+
+from __future__ import annotations
+
+import json
+import re
+import uuid
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from paths import ART_ROOT, CONFIG_FILE, INBOX_ROOT, PROJECT_ROOT, SOURCE_ROOT, WORKFLOWS_DIR
+
+try:
+    from bootstrap_config import (
+        CATEGORY_NEGATIVE_COMMON,
+        CATEGORY_POSITIVE_COMMON,
+        NO_TRANSPARENT_CATEGORIES,
+        merge_prompt_prefix,
+        merge_prompt_suffix,
+    )
+except ImportError:
+    CATEGORY_POSITIVE_COMMON = (
+        "(transparent background:1.4), (alpha channel:1.25), isolated subject, clean cutout sticker, "
+        "simple flat background, single color backdrop, no scenery, floating object"
+    )
+    CATEGORY_NEGATIVE_COMMON = (
+        "(solid background:1.35), (opaque background:1.25), complex background, detailed background, "
+        "white background, black background, grey background, gradient background, colored backdrop, "
+        "scenery, environment, floor, ground, wall, room, studio backdrop, vignette, cast shadow on ground"
+    )
+    NO_TRANSPARENT_CATEGORIES = frozenset({"backgrounds"})
+
+    def merge_prompt_prefix(prefix: str, body: str) -> str:
+        prefix = prefix.strip()
+        body = body.strip()
+        if not prefix:
+            return body
+        if not body:
+            return prefix
+        return f"{prefix}, {body}"
+
+    def merge_prompt_suffix(base: str, suffix: str) -> str:
+        base = base.strip()
+        suffix = suffix.strip()
+        if not suffix:
+            return base
+        if not base:
+            return suffix
+        return f"{base}, {suffix}"
+
+SAFE_ID = re.compile(r"[^a-z0-9_]+")
+
+REMOVE_BG_INHERIT = "inherit"
+REMOVE_BG_REMOVE = "remove"
+REMOVE_BG_KEEP = "keep"
+REMOVE_BG_MODES = frozenset({REMOVE_BG_INHERIT, REMOVE_BG_REMOVE, REMOVE_BG_KEEP})
+
+GEN_MODE_TXT2IMG = "txt2img"
+GEN_MODE_IMG2IMG = "img2img"
+GEN_MODE_REDRAW = "redraw"
+GEN_MODES = frozenset({GEN_MODE_TXT2IMG, GEN_MODE_IMG2IMG, GEN_MODE_REDRAW})
+GEN_MODES_IMG2IMG = frozenset({GEN_MODE_IMG2IMG, GEN_MODE_REDRAW})
+DEFAULT_IMG2IMG_DENOISE = 0.65
+DEFAULT_IMG2IMG_WORKFLOW = "workflows/_default_sdxl_img2img_api.json"
+
+
+def parse_remove_bg_mode(raw: dict[str, Any]) -> str:
+    """解析资源抠图模式（兼容旧版 remove_bg 布尔字段）。"""
+    if "remove_bg_mode" in raw:
+        v = str(raw["remove_bg_mode"]).strip().lower()
+        if v in ("default", "inherit", ""):
+            return REMOVE_BG_INHERIT
+        if v in ("remove", "on", "true", "yes"):
+            return REMOVE_BG_REMOVE
+        if v in ("keep", "off", "false", "no"):
+            return REMOVE_BG_KEEP
+        return REMOVE_BG_INHERIT
+    if "remove_bg" in raw:
+        return REMOVE_BG_REMOVE if raw["remove_bg"] else REMOVE_BG_KEEP
+    return REMOVE_BG_INHERIT
+
+
+def parse_gen_mode(raw: dict[str, Any]) -> str:
+    v = str(raw.get("gen_mode", GEN_MODE_TXT2IMG)).strip().lower()
+    if v == GEN_MODE_IMG2IMG and raw.get("ref_image_use_source"):
+        return GEN_MODE_REDRAW
+    return v if v in GEN_MODES else GEN_MODE_TXT2IMG
+
+
+@dataclass
+class Category:
+    id: str
+    label: str
+    source: str
+    inbox: str
+    unity: str
+    default_workflow: str = "workflows/_default_sdxl_api.json"
+    checkpoint: str = ""  # 空则使用 defaults.checkpoint
+    lora: str = ""
+    lora_strength: float = 0.7
+    positive_common: str = ""
+    negative_common: str = ""
+    alpha_matte: str = "border"
+
+
+@dataclass
+class Asset:
+    id: str
+    filename: str
+    category: str
+    width: int = 512
+    height: int = 512
+    subject: str = ""
+    positive: str = ""
+    negative: str = ""
+    positive_g: str = ""
+    positive_l: str = ""
+    workflow: str = ""
+    enabled: bool = True
+    gen_scale: float = 2.0
+    seed: str = ""
+    remove_bg_mode: str = REMOVE_BG_INHERIT
+    gen_mode: str = GEN_MODE_TXT2IMG
+    ref_image: str = ""
+    ref_image_use_source: bool = False
+    img2img_denoise: float = DEFAULT_IMG2IMG_DENOISE
+
+    @property
+    def size(self) -> int:
+        """兼容旧逻辑：取宽高中较大边。"""
+        return max(self.width, self.height)
+
+    def size_label(self) -> str:
+        return f"{self.width}×{self.height}"
+
+    def workflow_path(self) -> Path | None:
+        if not self.workflow:
+            return None
+        p = WORKFLOWS_DIR.parent / self.workflow
+        if self.workflow.startswith("workflows/"):
+            p = WORKFLOWS_DIR.parent / self.workflow
+        p = Path(self.workflow) if Path(self.workflow).is_absolute() else WORKFLOWS_DIR.parent / self.workflow
+        return p
+
+
+class ConfigManager:
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path or CONFIG_FILE
+        self.data: dict[str, Any] = {}
+        self._assets_cache: list[Asset] | None = None
+        self._asset_by_id: dict[str, Asset] | None = None
+        self._categories_cache: list[Category] | None = None
+        self._category_by_id: dict[str, Category] | None = None
+        self.load()
+
+    def _invalidate_caches(self) -> None:
+        self._assets_cache = None
+        self._asset_by_id = None
+        self._categories_cache = None
+        self._category_by_id = None
+
+    def load(self) -> None:
+        if not self.path.is_file():
+            self.data = _default_config()
+        else:
+            self.data = json.loads(self.path.read_text(encoding="utf-8"))
+        self._invalidate_caches()
+        self._ensure_root_paths_in_config()
+
+    def _ensure_root_paths_in_config(self) -> None:
+        """首次加载时写入推断的项目根路径（便于分类相对路径解析）。"""
+        d = self.defaults
+        dirty = False
+        if not str(d.get("project_root", "")).strip():
+            d["project_root"] = str(PROJECT_ROOT.resolve())
+            dirty = True
+        if not str(d.get("art_pipeline_root", "")).strip():
+            d["art_pipeline_root"] = str(ART_ROOT.resolve())
+            dirty = True
+        if dirty:
+            self.save()
+
+    def project_root(self) -> Path:
+        raw = str(self.defaults.get("project_root", "")).strip()
+        if raw:
+            return Path(raw).expanduser().resolve()
+        return PROJECT_ROOT.resolve()
+
+    def art_root(self) -> Path:
+        raw = str(self.defaults.get("art_pipeline_root", "")).strip()
+        if raw:
+            return Path(raw).expanduser().resolve()
+        sibling = self.project_root() / "ArtPipeline"
+        if sibling.is_dir():
+            return sibling.resolve()
+        return ART_ROOT.resolve()
+
+    @staticmethod
+    def _join_under(root: Path, rel: str) -> Path:
+        rel = rel.strip().replace("\\", "/").strip("/")
+        if not rel:
+            return root
+        p = Path(rel)
+        if p.is_absolute():
+            return p.expanduser().resolve()
+        return (root / rel).resolve()
+
+    def category_source_path(self, cat: Category) -> Path:
+        return self._join_under(self.art_root(), cat.source)
+
+    def category_inbox_path(self, cat: Category) -> Path:
+        return self._join_under(self.art_root(), cat.inbox)
+
+    def category_unity_path(self, cat: Category) -> Path:
+        return self._join_under(self.project_root(), cat.unity)
+
+    def rel_to_project(self, path: Path) -> str:
+        try:
+            return str(path.resolve().relative_to(self.project_root()))
+        except ValueError:
+            return str(path)
+
+    def save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(
+            json.dumps(self.data, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self._invalidate_caches()
+
+    @property
+    def defaults(self) -> dict[str, Any]:
+        return self.data.setdefault("defaults", {})
+
+    def categories(self) -> list[Category]:
+        if self._categories_cache is not None:
+            return self._categories_cache
+        out: list[Category] = []
+        for raw in self.data.get("categories", []):
+            raw.setdefault("checkpoint", "")
+            out.append(
+                Category(
+                    id=raw["id"],
+                    label=raw["label"],
+                    source=raw["source"],
+                    inbox=raw["inbox"],
+                    unity=raw["unity"],
+                    default_workflow=raw.get("default_workflow", "workflows/_default_sdxl_api.json"),
+                    checkpoint=raw.get("checkpoint", ""),
+                    lora=str(raw.get("lora", "")),
+                    lora_strength=float(raw.get("lora_strength", 0.7)),
+                    positive_common=str(
+                        raw.get("positive_common", CATEGORY_POSITIVE_COMMON)
+                    ),
+                    negative_common=str(
+                        raw.get("negative_common", CATEGORY_NEGATIVE_COMMON)
+                    ),
+                    alpha_matte=str(raw.get("alpha_matte", "border" if raw.get("id") not in NO_TRANSPARENT_CATEGORIES else "none")),
+                )
+            )
+        self._categories_cache = out
+        self._category_by_id = {c.id: c for c in out}
+        return out
+
+    def category_by_id(self, cat_id: str) -> Category | None:
+        if self._category_by_id is None:
+            self.categories()
+        assert self._category_by_id is not None
+        return self._category_by_id.get(cat_id)
+
+    def _all_assets(self) -> list[Asset]:
+        if self._assets_cache is not None:
+            return self._assets_cache
+        out: list[Asset] = []
+        for raw in self.data.get("assets", []):
+            legacy = int(raw.get("size", 512))
+            a = Asset(
+                id=raw["id"],
+                filename=raw["filename"],
+                category=raw["category"],
+                width=int(raw.get("width", legacy)),
+                height=int(raw.get("height", legacy)),
+                subject=raw.get("subject", ""),
+                positive=raw.get("positive", ""),
+                negative=raw.get("negative", ""),
+                positive_g=raw.get("positive_g", ""),
+                positive_l=raw.get("positive_l", ""),
+                workflow=raw.get("workflow", ""),
+                enabled=bool(raw.get("enabled", True)),
+                gen_scale=float(
+                    raw.get(
+                        "gen_scale",
+                        2.0 if raw.get("category") in ("roles", "items") else 1.0,
+                    )
+                ),
+                seed=str(raw.get("seed", "")),
+                remove_bg_mode=parse_remove_bg_mode(raw),
+                gen_mode=parse_gen_mode(raw),
+                ref_image=str(raw.get("ref_image", "")),
+                ref_image_use_source=bool(raw.get("ref_image_use_source", False)),
+                img2img_denoise=float(raw.get("img2img_denoise", DEFAULT_IMG2IMG_DENOISE)),
+            )
+            out.append(a)
+        self._assets_cache = out
+        self._asset_by_id = {a.id: a for a in out}
+        return out
+
+    def assets(self, *, category: str | None = None, enabled_only: bool = False) -> list[Asset]:
+        out = self._all_assets()
+        if category:
+            out = [a for a in out if a.category == category]
+        if enabled_only:
+            out = [a for a in out if a.enabled]
+        return out
+
+    def asset_by_id(self, asset_id: str) -> Asset | None:
+        if self._asset_by_id is None:
+            self._all_assets()
+        assert self._asset_by_id is not None
+        return self._asset_by_id.get(asset_id)
+
+    def asset_by_filename(self, filename: str) -> Asset | None:
+        for a in self._all_assets():
+            if a.filename == filename:
+                return a
+        return None
+
+    def ensure_category_dirs(self, cat: Category) -> None:
+        self.category_source_path(cat).mkdir(parents=True, exist_ok=True)
+        self.category_inbox_path(cat).mkdir(parents=True, exist_ok=True)
+        self.category_unity_path(cat).mkdir(parents=True, exist_ok=True)
+
+    def ensure_all_dirs(self) -> None:
+        for cat in self.categories():
+            self.ensure_category_dirs(cat)
+
+    def add_category(self, label: str, cat_id: str | None = None, *, checkpoint: str = "") -> Category:
+        cat_id = cat_id or SAFE_ID.sub("_", label.lower()).strip("_") or str(uuid.uuid4())[:8]
+        if self.category_by_id(cat_id):
+            raise ValueError(f"分类已存在: {cat_id}")
+        ckpt = checkpoint.strip() or str(self.defaults.get("checkpoint", ""))
+        cat = Category(
+            id=cat_id,
+            label=label,
+            source=f"source/{cat_id}",
+            inbox=f"inbox/{cat_id}",
+            unity=f"Assets/Art/UI/Icons/{cat_id.title()}",
+            checkpoint=ckpt,
+            positive_common=CATEGORY_POSITIVE_COMMON,
+            negative_common=CATEGORY_NEGATIVE_COMMON,
+            alpha_matte="border",
+        )
+        self.data.setdefault("categories", []).append(cat.__dict__)
+        self.ensure_category_dirs(cat)
+        self.save()
+        return cat
+
+    def _allocate_asset_id(self, filename: str, category: str) -> str:
+        """由文件名推导资源 ID；纯中文等无法推导时自动生成唯一 ID。"""
+        stem = Path(filename).stem
+        base = SAFE_ID.sub("_", stem.lower()).strip("_")
+        if not base:
+            cat = SAFE_ID.sub("_", category.lower()).strip("_") or "asset"
+            return f"{cat}_{uuid.uuid4().hex[:8]}"
+        if not self.asset_by_id(base):
+            return base
+        raise ValueError(f"资源已存在: {base}")
+
+    def add_asset(
+        self,
+        *,
+        filename: str,
+        category: str,
+        width: int = 512,
+        height: int = 512,
+        subject: str = "",
+        positive: str = "",
+        negative: str = "",
+        workflow: str = "",
+        seed: str = "",
+        enabled: bool = True,
+    ) -> Asset:
+        if not self.category_by_id(category):
+            raise ValueError(f"未知分类: {category}")
+        asset_id = self._allocate_asset_id(filename, category)
+        cat = self.category_by_id(category)
+        wf = workflow or cat.default_workflow
+        asset = Asset(
+            id=asset_id,
+            filename=filename,
+            category=category,
+            width=width,
+            height=height,
+            subject=subject,
+            positive=positive,
+            negative=negative,
+            workflow=wf,
+            seed=seed,
+            enabled=enabled,
+        )
+        self.data.setdefault("assets", []).append(asset.__dict__)
+        wf_path = WORKFLOWS_DIR / "assets" / f"{asset_id}.json"
+        if not wf_path.is_file() and cat.default_workflow:
+            src = WORKFLOWS_DIR / Path(cat.default_workflow).name
+            if src.is_file():
+                wf_path.parent.mkdir(parents=True, exist_ok=True)
+                wf_path.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+                asset.workflow = f"workflows/assets/{asset_id}.json"
+                self._update_asset_dict(asset)
+        self.save()
+        return asset
+
+    def update_asset(self, asset: Asset) -> None:
+        old_raw = self._asset_raw(asset.id)
+        if old_raw:
+            old_fn = str(old_raw.get("filename", ""))
+            if old_fn and asset.filename != old_fn:
+                self.rename_asset_files(asset, asset.filename)
+        self._update_asset_dict(asset)
+        self.save()
+
+    def _update_asset_dict(self, asset: Asset) -> None:
+        payload = {
+            "id": asset.id,
+            "filename": asset.filename,
+            "category": asset.category,
+            "width": asset.width,
+            "height": asset.height,
+            "subject": asset.subject,
+            "positive": asset.positive,
+            "negative": asset.negative,
+            "positive_g": asset.positive_g,
+            "positive_l": asset.positive_l,
+            "workflow": asset.workflow,
+            "enabled": asset.enabled,
+            "gen_scale": asset.gen_scale,
+            "seed": asset.seed,
+            "remove_bg_mode": asset.remove_bg_mode,
+            "gen_mode": asset.gen_mode,
+            "ref_image": asset.ref_image,
+            "ref_image_use_source": asset.ref_image_use_source,
+            "img2img_denoise": asset.img2img_denoise,
+        }
+        for i, raw in enumerate(self.data.get("assets", [])):
+            if raw.get("id") == asset.id:
+                if "postprocess" in raw:
+                    payload["postprocess"] = raw["postprocess"]
+                self.data["assets"][i] = payload
+                return
+        raise KeyError(asset.id)
+
+    def resolve_seed_for_asset(self, asset: Asset, *, override: int | None = None) -> int:
+        """优先级：CLI/API 指定 > 资源 seed > 全局 seed > 随机。"""
+        import random
+
+        if override is not None:
+            return override
+        asset_s = (asset.seed or "").strip()
+        if asset_s:
+            return int(asset_s)
+        global_s = str(self.defaults.get("seed", "")).strip()
+        if global_s:
+            return int(global_s)
+        return random.randint(1, 2**31 - 1)
+
+    def checkpoint_for_category(self, cat_id: str) -> str:
+        cat = self.category_by_id(cat_id)
+        if cat and cat.checkpoint.strip():
+            return cat.checkpoint.strip()
+        return str(self.defaults.get("checkpoint", ""))
+
+    def lora_for_category(self, cat_id: str) -> tuple[str, float]:
+        cat = self.category_by_id(cat_id)
+        if cat and cat.lora.strip():
+            return cat.lora.strip(), float(cat.lora_strength)
+        return "", 0.0
+
+    def category_remove_bg_default(self, cat_id: str) -> bool:
+        """分类是否默认剔除纯色背景。"""
+        return self.alpha_matte_for_category(cat_id) != "none"
+
+    def should_remove_bg(self, asset: Asset, cat: Category | None = None) -> bool:
+        """预览/生成时是否对该资源做纯色底抠图。"""
+        mode = asset.remove_bg_mode
+        if mode == REMOVE_BG_REMOVE:
+            return True
+        if mode == REMOVE_BG_KEEP:
+            return False
+        cat = cat or self.category_by_id(asset.category)
+        if cat:
+            return cat.alpha_matte.strip().lower() != "none"
+        return asset.category not in NO_TRANSPARENT_CATEGORIES
+
+    def alpha_matte_for_category(self, cat_id: str) -> str:
+        cat = self.category_by_id(cat_id)
+        if cat and cat.alpha_matte.strip():
+            return cat.alpha_matte.strip()
+        return "none" if cat_id in NO_TRANSPARENT_CATEGORIES else "border"
+
+    def alpha_matte_for_asset(self, asset: Asset) -> str:
+        """生成管线使用的抠图模式；不抠图时返回 none。"""
+        if not self.should_remove_bg(asset):
+            return "none"
+        mode = self.alpha_matte_for_category(asset.category)
+        return mode if mode != "none" else "border"
+
+    def prompts_for_generation(self, asset: Asset) -> dict[str, str]:
+        """合并资源 prompt 与分类通用 prompt（生成时使用）。"""
+        cat = self.category_by_id(asset.category)
+        pos_common = (cat.positive_common if cat else "").strip()
+        neg_common = (cat.negative_common if cat else "").strip()
+        positive = merge_prompt_prefix(pos_common, asset.positive)
+        positive_g = merge_prompt_prefix(pos_common, asset.positive_g or asset.positive)
+        positive_l = merge_prompt_prefix(pos_common, asset.positive_l or asset.positive)
+        negative = merge_prompt_suffix(asset.negative, neg_common)
+        return {
+            "positive": positive,
+            "positive_g": positive_g,
+            "positive_l": positive_l,
+            "negative": negative,
+        }
+
+    def update_category(self, cat: Category) -> None:
+        for i, raw in enumerate(self.data.get("categories", [])):
+            if raw.get("id") == cat.id:
+                self.data["categories"][i] = cat.__dict__
+                self.save()
+                return
+        raise KeyError(cat.id)
+
+    def delete_asset(self, asset_id: str) -> None:
+        self.data["assets"] = [a for a in self.data.get("assets", []) if a.get("id") != asset_id]
+        self.save()
+
+    def delete_category(self, cat_id: str) -> int:
+        if not self.category_by_id(cat_id):
+            raise ValueError(f"未知分类: {cat_id}")
+        assets = self.data.get("assets", [])
+        removed = sum(1 for a in assets if a.get("category") == cat_id)
+        self.data["assets"] = [a for a in assets if a.get("category") != cat_id]
+        self.data["categories"] = [c for c in self.data.get("categories", []) if c.get("id") != cat_id]
+        self._invalidate_caches()
+        self.save()
+        return removed
+
+    def resolve_paths(self, asset: Asset) -> tuple[Path, Path, Path]:
+        cat = self.category_by_id(asset.category)
+        if not cat:
+            raise ValueError(f"资源 {asset.id} 的分类不存在")
+        return (
+            self.category_source_path(cat) / asset.filename,
+            self.category_inbox_path(cat) / asset.filename,
+            self.category_unity_path(cat) / asset.filename,
+        )
+
+    @staticmethod
+    def normalize_asset_filename(name: str) -> str:
+        fn = (name or "").strip()
+        if not fn:
+            raise ValueError("文件名不能为空")
+        if any(c in fn for c in ("/", "\\", "\0")):
+            raise ValueError("文件名不能包含路径分隔符")
+        if not fn.lower().endswith(".png"):
+            fn = f"{fn}.png"
+        return fn
+
+    def rename_asset_files(self, asset: Asset, new_filename: str) -> list[str]:
+        """重命名 source / inbox / unity 下已存在的 PNG；更新 asset.filename。"""
+        new_filename = self.normalize_asset_filename(new_filename)
+        old_filename = asset.filename
+        if new_filename == old_filename:
+            return []
+
+        other = self.asset_by_filename(new_filename)
+        if other and other.id != asset.id:
+            raise ValueError(f"文件名已被占用: {new_filename}")
+
+        cat = self.category_by_id(asset.category)
+        if not cat:
+            raise ValueError(f"资源 {asset.id} 的分类不存在")
+
+        src_old, inbox_old, unity_old = self.resolve_paths(asset)
+        src_new = self.category_source_path(cat) / new_filename
+        inbox_new = self.category_inbox_path(cat) / new_filename
+        unity_new = self.category_unity_path(cat) / new_filename
+        pairs = (
+            ("source", src_old, src_new),
+            ("inbox", inbox_old, inbox_new),
+            ("unity", unity_old, unity_new),
+        )
+
+        for kind, old_p, new_p in pairs:
+            if not old_p.is_file():
+                continue
+            try:
+                if old_p.resolve() == new_p.resolve():
+                    continue
+            except OSError:
+                pass
+            if new_p.exists():
+                raise ValueError(f"{kind} 目标文件已存在: {new_filename}")
+
+        renamed: list[str] = []
+        done: list[tuple[Path, Path]] = []
+        try:
+            for _kind, old_p, new_p in pairs:
+                if not old_p.is_file():
+                    continue
+                try:
+                    if old_p.resolve() == new_p.resolve():
+                        continue
+                except OSError:
+                    pass
+                new_p.parent.mkdir(parents=True, exist_ok=True)
+                old_p.rename(new_p)
+                done.append((new_p, old_p))
+                renamed.append(str(new_p))
+        except OSError as exc:
+            for new_p, old_p in reversed(done):
+                try:
+                    if new_p.is_file() and not old_p.exists():
+                        new_p.rename(old_p)
+                except OSError:
+                    pass
+            raise ValueError(f"重命名失败: {exc}") from exc
+
+        asset.filename = new_filename
+        return renamed
+
+    def _move_asset_plan(self, asset: Asset, new_cat_id: str) -> dict[str, Any]:
+        new_cat = self.category_by_id(new_cat_id)
+        if not new_cat:
+            raise ValueError(f"未知分类: {new_cat_id}")
+        old_cat = self.category_by_id(asset.category)
+        if not old_cat:
+            raise ValueError(f"资源 {asset.id} 的分类不存在")
+        if old_cat.id == new_cat.id:
+            return {
+                "same_category": True,
+                "from_category": old_cat.id,
+                "to_category": new_cat.id,
+                "from_label": old_cat.label,
+                "to_label": new_cat.label,
+                "filename": asset.filename,
+                "files": [],
+            }
+        for other in self.assets(category=new_cat.id):
+            if other.filename == asset.filename and other.id != asset.id:
+                raise ValueError(f"目标分类已有同名资源: {asset.filename}")
+
+        filename = asset.filename
+        pairs = (
+            ("source", self.category_source_path(old_cat) / filename, self.category_source_path(new_cat) / filename),
+            ("inbox", self.category_inbox_path(old_cat) / filename, self.category_inbox_path(new_cat) / filename),
+            ("unity", self.category_unity_path(old_cat) / filename, self.category_unity_path(new_cat) / filename),
+        )
+        files: list[dict[str, Any]] = []
+        for kind, old_p, new_p in pairs:
+            exists = old_p.is_file()
+            conflict = new_p.exists() and (not exists or old_p.resolve() != new_p.resolve())
+            files.append(
+                {
+                    "kind": kind,
+                    "from": str(old_p),
+                    "to": str(new_p),
+                    "exists": exists,
+                    "conflict": conflict,
+                }
+            )
+        conflicts = [f for f in files if f["conflict"]]
+        if conflicts:
+            kind = conflicts[0]["kind"]
+            raise ValueError(f"{kind} 目标文件已存在: {filename}")
+        return {
+            "same_category": False,
+            "from_category": old_cat.id,
+            "to_category": new_cat.id,
+            "from_label": old_cat.label,
+            "to_label": new_cat.label,
+            "filename": filename,
+            "files": files,
+        }
+
+    def preview_move_asset_to_category(self, asset: Asset, new_cat_id: str) -> dict[str, Any]:
+        return self._move_asset_plan(asset, new_cat_id)
+
+    def move_asset_to_category(self, asset: Asset, new_cat_id: str) -> dict[str, Any]:
+        plan = self._move_asset_plan(asset, new_cat_id)
+        if plan["same_category"]:
+            return {"moved": [], "skipped": [], **plan}
+
+        moved: list[str] = []
+        skipped: list[str] = []
+        done: list[tuple[Path, Path]] = []
+        try:
+            for entry in plan["files"]:
+                old_p = Path(entry["from"])
+                new_p = Path(entry["to"])
+                if not entry["exists"]:
+                    skipped.append(entry["kind"])
+                    continue
+                try:
+                    if old_p.resolve() == new_p.resolve():
+                        skipped.append(entry["kind"])
+                        continue
+                except OSError:
+                    pass
+                new_p.parent.mkdir(parents=True, exist_ok=True)
+                old_p.rename(new_p)
+                done.append((new_p, old_p))
+                moved.append(str(new_p))
+        except OSError as exc:
+            for new_p, old_p in reversed(done):
+                try:
+                    if new_p.is_file() and not old_p.exists():
+                        new_p.rename(old_p)
+                except OSError:
+                    pass
+            raise ValueError(f"移动文件失败: {exc}") from exc
+
+        asset.category = new_cat_id
+        self._update_asset_dict(asset)
+        self.save()
+        return {"moved": moved, "skipped": skipped, **plan}
+
+    def workflow_file_for_asset(self, asset: Asset) -> Path:
+        cat = self.category_by_id(asset.category)
+        rel = asset.workflow or (cat.default_workflow if cat else "workflows/_default_sdxl_api.json")
+        p = WORKFLOWS_DIR.parent / rel
+        if not p.is_file():
+            p = WORKFLOWS_DIR / Path(rel).name
+        return p
+
+    def img2img_workflow_for_asset(self, asset: Asset) -> Path:
+        wf_path = self.workflow_file_for_asset(asset)
+        if wf_path.is_file():
+            try:
+                if "{{REF_IMAGE}}" in wf_path.read_text(encoding="utf-8"):
+                    return wf_path
+            except OSError:
+                pass
+        p = WORKFLOWS_DIR / Path(DEFAULT_IMG2IMG_WORKFLOW).name
+        if p.is_file():
+            return p
+        return WORKFLOWS_DIR / "_default_sdxl_img2img_api.json"
+
+    def resolve_ref_image_path(self, asset: Asset) -> Path | None:
+        mode = getattr(asset, "gen_mode", GEN_MODE_TXT2IMG) or GEN_MODE_TXT2IMG
+        if mode == GEN_MODE_REDRAW or getattr(asset, "ref_image_use_source", False):
+            src, _inbox, _unity = self.resolve_paths(asset)
+            try:
+                return src.resolve() if src.is_file() else None
+            except OSError:
+                return None
+        raw = (asset.ref_image or "").strip()
+        if not raw:
+            return None
+        p = Path(raw).expanduser()
+        if not p.is_absolute():
+            p = self.art_root() / raw
+        p = p.resolve()
+        return p if p.is_file() else None
+
+    def _asset_raw(self, asset_id: str) -> dict[str, Any] | None:
+        for raw in self.data.get("assets", []):
+            if raw.get("id") == asset_id:
+                return raw
+        return None
+
+    def get_postprocess_stack(self, asset_id: str) -> "LayerStack | None":
+        from postprocess.models import stack_from_dict
+
+        raw = self._asset_raw(asset_id)
+        if not raw:
+            return None
+        return stack_from_dict(raw.get("postprocess"))
+
+    def set_postprocess_stack(self, asset_id: str, stack: "LayerStack") -> None:
+        from postprocess.models import stack_to_dict
+
+        raw = self._asset_raw(asset_id)
+        if not raw:
+            raise KeyError(asset_id)
+        raw["postprocess"] = stack_to_dict(stack)
+        self.save()
+
+    def default_postprocess_stack(self, asset: Asset) -> "LayerStack":
+        from postprocess.templates import resolve_template
+
+        return resolve_template(
+            self.data,
+            template_id=None,
+            category_id=asset.category,
+            width=asset.width,
+            height=asset.height,
+        )
+
+
+def _default_config() -> dict[str, Any]:
+    """首次启动时的默认配置（从现有 manifest 迁移）。"""
+    from bootstrap_config import build_default_config
+
+    return build_default_config()

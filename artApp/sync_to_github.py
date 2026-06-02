@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+"""
+将 ArtPipeline 源码同步到 GitHub 仓库目录，并过滤敏感配置。
+
+用法:
+  cd ArtPipeline/artApp
+  python3 sync_to_github.py
+  python3 sync_to_github.py --dest /Users/keyle/ArtPipeline-Studio
+  python3 sync_to_github.py --dry-run
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ARTAPP_ROOT = Path(__file__).resolve().parent
+PIPELINE_ROOT = ARTAPP_ROOT.parent
+DEFAULT_DEST = Path.home() / "ArtPipeline-Studio"
+
+# 同步的顶层条目（相对 ArtPipeline 根）
+SYNC_TOP_LEVEL = (
+    "artApp",
+    "artAppSite",
+    "tools",
+    "docs",
+    "manifest",
+    "overlays",
+    "comfyui",
+    ".github",
+    "README.md",
+)
+
+GITHUB_GITIGNORE = """# 构建与本地环境
+artApp/release/
+artApp/.build-venv/
+**/__pycache__/
+**/*.pyc
+.DS_Store
+.sync_staging/
+.sync_backup_meta/
+
+# 敏感配置（复制 pipeline_config.example.json 为 pipeline_config.json 后本地填写）
+tools/pipeline_config.json
+
+# 美术资源（体积大，本地生成）
+source/**/*.png
+source/**/*.webp
+source/**/*.jpg
+source/**/*.jpeg
+inbox/**/*.png
+inbox/**/*.webp
+inbox/**/*.jpg
+inbox/**/*.jpeg
+
+# 个人资源工作流副本
+tools/workflows/assets/*
+!tools/workflows/assets/.gitkeep
+
+.env
+.env.*
+"""
+
+RSYNC_EXCLUDES = [
+    ".git",
+    ".DS_Store",
+    "__pycache__",
+    "*.pyc",
+    "release/",           # artApp/release 打包产物
+    ".build-venv/",       # artApp/.build-venv
+    "source/",
+    "inbox/",
+    "workflows/assets/",  # tools/workflows/assets 个人工作流
+]
+
+SANITIZE_DEFAULT_KEYS = (
+    "deepseek_api_key",
+    "project_root",
+    "art_pipeline_root",
+)
+
+SK_PATTERN = re.compile(r"sk-[A-Za-z0-9]{8,}")
+
+
+def sanitize_pipeline_config(data: dict) -> dict:
+    """移除 API 密钥与个人绝对路径；保留分类/模板结构。"""
+    out = json.loads(json.dumps(data))
+    defaults = out.setdefault("defaults", {})
+    for key in SANITIZE_DEFAULT_KEYS:
+        if key in defaults:
+            defaults[key] = ""
+    # 兜底：扫描 defaults 内疑似密钥字符串
+    for key, val in list(defaults.items()):
+        if isinstance(val, str) and SK_PATTERN.search(val):
+            defaults[key] = ""
+    return out
+
+
+def write_sanitized_config(src: Path, dest: Path) -> None:
+    if not src.is_file():
+        return
+    data = json.loads(src.read_text(encoding="utf-8"))
+    clean = sanitize_pipeline_config(data)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(clean, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def rsync_copy(src: Path, dest: Path, *, dry_run: bool) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    cmd = ["rsync", "-a", "--delete"]
+    if dry_run:
+        cmd.append("--dry-run")
+    for pattern in RSYNC_EXCLUDES:
+        cmd.extend(["--exclude", pattern])
+    cmd.extend([f"{src}/", f"{dest}/"])
+    print(">>>", " ".join(cmd))
+    subprocess.run(cmd, check=True)
+
+
+def post_process(dest: Path, *, dry_run: bool) -> None:
+    cfg = dest / "tools" / "pipeline_config.json"
+    example = dest / "tools" / "pipeline_config.example.json"
+    if cfg.is_file() and not dry_run:
+        write_sanitized_config(cfg, example)
+        cfg.unlink()
+        print("  ✓ 已生成 tools/pipeline_config.example.json（已删除带密钥的 pipeline_config.json）")
+
+    assets_dir = dest / "tools" / "workflows" / "assets"
+    if not dry_run:
+        if assets_dir.exists():
+            shutil.rmtree(assets_dir)
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        (assets_dir / ".gitkeep").write_text("", encoding="utf-8")
+
+    stray_release = dest / "artApp" / "release"
+    if stray_release.is_dir():
+        shutil.rmtree(stray_release)
+        print("  ✓ 已删除 artApp/release/")
+
+    (dest / ".gitignore").write_text(GITHUB_GITIGNORE, encoding="utf-8")
+    print("  ✓ 已写入 .gitignore")
+
+
+def preserve_repo_meta(dest: Path, backup: Path) -> None:
+    """暂存 Git 仓库元数据，避免 rsync --delete 误伤。"""
+    backup.mkdir(parents=True, exist_ok=True)
+    for name in (".git", "LICENSE", "README.md"):
+        src = dest / name
+        if src.exists():
+            dst = backup / name
+            if dst.exists():
+                if dst.is_dir():
+                    shutil.rmtree(dst)
+                else:
+                    dst.unlink()
+            if src.is_dir():
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+
+
+def restore_repo_meta(dest: Path, backup: Path) -> None:
+    if not backup.is_dir():
+        return
+    for item in backup.iterdir():
+        target = dest / item.name
+        if item.name == "README.md":
+            # 合并：保留仓库 README，追加 ArtPipeline README 作为参考
+            pipeline_readme = dest / "README.md"
+            if pipeline_readme.is_file() and item.is_file():
+                merged = item.read_text(encoding="utf-8").rstrip()
+                body = pipeline_readme.read_text(encoding="utf-8").strip()
+                if body and body not in merged:
+                    merged += "\n\n---\n\n<!-- ArtPipeline 项目说明 -->\n\n" + body
+                target.write_text(merged + "\n", encoding="utf-8")
+                continue
+        if target.exists():
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+        if item.is_dir():
+            shutil.copytree(item, target)
+        else:
+            shutil.copy2(item, target)
+    shutil.rmtree(backup)
+
+
+def sync(*, dest: Path, dry_run: bool) -> None:
+    if not PIPELINE_ROOT.is_dir():
+        raise SystemExit(f"找不到 ArtPipeline 根目录: {PIPELINE_ROOT}")
+
+    print(f"源: {PIPELINE_ROOT}")
+    print(f"目标: {dest}")
+
+    backup = dest / ".sync_backup_meta"
+    if not dry_run:
+        preserve_repo_meta(dest, backup)
+
+    staging = dest / ".sync_staging"
+    if staging.exists() and not dry_run:
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True, exist_ok=True)
+
+    for name in SYNC_TOP_LEVEL:
+        src = PIPELINE_ROOT / name
+        if not src.exists():
+            print(f"  跳过（不存在）: {name}")
+            continue
+        dst = staging / name
+        print(f"\n同步 {name} …")
+        if src.is_dir():
+            rsync_copy(src, dst, dry_run=dry_run)
+        elif not dry_run:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+        else:
+            print(f"  复制文件 {name}")
+
+    if dry_run:
+        print("\n[dry-run] 未写入目标仓库")
+        return
+
+    # 将 staging 内容合并到 dest（保留 .git）
+    for item in staging.iterdir():
+        target = dest / item.name
+        if target.exists():
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+        if item.is_dir():
+            shutil.copytree(item, target)
+        else:
+            shutil.copy2(item, target)
+    shutil.rmtree(staging)
+
+    post_process(dest, dry_run=False)
+    restore_repo_meta(dest, backup)
+
+    print(f"\n✓ 已同步到 {dest}")
+    print("  请检查 git status，确认无密钥与本地路径后再 commit。")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Sync ArtPipeline to GitHub repo with sanitization")
+    parser.add_argument(
+        "--dest",
+        type=Path,
+        default=DEFAULT_DEST,
+        help=f"Git 仓库路径（默认 {DEFAULT_DEST}）",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="仅预览 rsync，不写入")
+    args = parser.parse_args()
+
+    dest = args.dest.expanduser().resolve()
+    if not (dest / ".git").is_dir() and not args.dry_run:
+        print(f"警告: {dest} 不是 Git 仓库（无 .git），仍将写入文件。", file=sys.stderr)
+
+    sync(dest=dest, dry_run=args.dry_run)
+
+
+if __name__ == "__main__":
+    main()

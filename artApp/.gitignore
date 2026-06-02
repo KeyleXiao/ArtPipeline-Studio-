@@ -1,0 +1,4 @@
+.build-venv/
+release/build/
+release/dist/
+release/*.spec

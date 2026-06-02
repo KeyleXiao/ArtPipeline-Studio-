@@ -1,0 +1,16 @@
+{
+  "_comment": "参考工作流 · 实际由 generate_icons_comfyui.py 动态构建。animagineXL_v3 SDXL 512x512 角色方图。",
+  "checkpoint": "animagineXL_v3.safetensors",
+  "width": 512,
+  "height": 512,
+  "nodes": {
+    "1": "CheckpointLoaderSimple",
+    "2": "EmptyLatentImage",
+    "3": "CLIPTextEncodeSDXL (positive)",
+    "4": "CLIPTextEncodeSDXL (negative)",
+    "5": "KSampler",
+    "6": "VAEDecode",
+    "7": "SaveImage"
+  },
+  "post_process": "generate_icons_comfyui.py --to-inbox --deploy（可选 --no-rembg 跳过角色 rembg）"
+}

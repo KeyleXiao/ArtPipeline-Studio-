@@ -1,0 +1,54 @@
+# 在 GitHub 云端 Windows 环境打包 .exe
+#
+# 若仓库根目录是 ArtPipeline/，working-directory 用 artApp
+# 若仓库根目录是上级（含 ArtPipeline/ 子目录），保持 ArtPipeline/artApp
+
+name: Build Windows Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "artApp/**"
+      - "tools/**"
+      - "ArtPipeline/artApp/**"
+      - "ArtPipeline/tools/**"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve artApp path
+        id: paths
+        shell: bash
+        run: |
+          if [ -d ArtPipeline/artApp ]; then
+            echo "dir=ArtPipeline/artApp" >> "$GITHUB_OUTPUT"
+          elif [ -d artApp ]; then
+            echo "dir=artApp" >> "$GITHUB_OUTPUT"
+          else
+            echo "找不到 artApp 目录" >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            ${{ steps.paths.outputs.dir }}/requirements.txt
+            ${{ steps.paths.outputs.dir }}/requirements-build.txt
+
+      - name: Build with PyInstaller
+        working-directory: ${{ steps.paths.outputs.dir }}
+        run: python build_release_win.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArtPipeline-Studio-Windows
+          path: ${{ steps.paths.outputs.dir }}/release/ArtPipeline Studio/
+          if-no-files-found: error

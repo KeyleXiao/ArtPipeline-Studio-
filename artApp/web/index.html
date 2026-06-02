@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ArtPipeline Studio</title>
+  <link rel="icon" href="/assets/app_icon.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/app.css" />
+  <link rel="stylesheet" href="/css/effects.css" />
+</head>
+<body class="is-booting">
+  <div class="app-splash" id="app-splash" aria-hidden="false">
+    <div class="splash-bg">
+      <div class="splash-grid"></div>
+      <div class="splash-orb splash-orb-1"></div>
+      <div class="splash-orb splash-orb-2"></div>
+    </div>
+    <div class="splash-content">
+      <div class="splash-logo-wrap">
+        <img class="splash-logo" src="/assets/app_icon.png" width="76" height="76" alt="" />
+        <div class="splash-ring" aria-hidden="true"></div>
+      </div>
+      <h2 class="splash-title">ArtPipeline Studio</h2>
+      <p class="splash-sub" id="splash-sub" data-i18n="splash.loading">正在启动…</p>
+      <div class="splash-progress" aria-hidden="true">
+        <div class="splash-progress-fill"></div>
+        <div class="splash-progress-glow"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="fx-overlay hidden" id="fx-global-overlay" aria-hidden="true">
+    <div class="fx-overlay-card">
+      <div class="fx-spin-ring" aria-hidden="true"></div>
+      <p class="fx-overlay-msg" data-i18n="splash.reloading">正在加载…</p>
+    </div>
+  </div>
+
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-mark" src="/assets/app_icon.png" width="36" height="36" alt="" />
+        <div>
+          <h1>ArtPipeline Studio</h1>
+          <p class="brand-sub" data-i18n="app.subtitle">KEYLE· 美术流水线</p>
+        </div>
+      </div>
+      <nav class="toolbar-nav" aria-label="Main actions">
+        <div class="nav-group">
+          <button type="button" class="btn nav-trigger primary" aria-haspopup="menu" aria-expanded="false">
+            <span data-i18n="toolbar.menuGenerate">生成</span>
+            <span class="nav-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="nav-dropdown hidden" role="menu">
+            <button type="button" class="nav-item accent" data-action="gen-selected" role="menuitem" data-i18n="toolbar.genSelected">生成选中</button>
+            <button type="button" class="nav-item" data-action="gen-category" role="menuitem" data-i18n="toolbar.genCategory">生成本类</button>
+            <button type="button" class="nav-item" data-action="gen-export" role="menuitem" data-i18n="toolbar.genExport">生成并导出</button>
+          </div>
+        </div>
+        <div class="nav-group">
+          <button type="button" class="btn nav-trigger" aria-haspopup="menu" aria-expanded="false">
+            <span data-i18n="toolbar.menuExport">导出</span>
+            <span class="nav-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="nav-dropdown hidden" role="menu">
+            <button type="button" class="nav-item" data-action="export" role="menuitem" data-i18n="toolbar.export">导出到游戏引擎</button>
+            <button type="button" class="nav-item" data-action="export-category" role="menuitem" data-i18n="toolbar.exportCategory">导出本类</button>
+          </div>
+        </div>
+        <div class="nav-group">
+          <button type="button" class="btn nav-trigger ghost" aria-haspopup="menu" aria-expanded="false">
+            <span data-i18n="toolbar.menuConfig">配置</span>
+            <span class="nav-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="nav-dropdown hidden" role="menu">
+            <button type="button" class="nav-item" data-action="save-config" role="menuitem" data-i18n="toolbar.saveConfig">保存配置</button>
+            <button type="button" class="nav-item" data-action="reload-config" role="menuitem" data-i18n="toolbar.reloadConfig">重载配置</button>
+          </div>
+        </div>
+      </nav>
+      <div class="topbar-right">
+        <div class="lang-switch" role="group" aria-label="Language">
+          <button type="button" class="lang-btn" data-lang="zh-CN" data-i18n="lang.zh">中文</button>
+          <button type="button" class="lang-btn" data-lang="en-US" data-i18n="lang.en">EN</button>
+        </div>
+        <span class="pill" id="comfy-pill" data-i18n="comfy.checking">ComfyUI …</span>
+        <span class="pill" id="job-pill" data-i18n="job.ready">就绪</span>
+        <a class="btn ghost sm" href="/docs.html" data-i18n="toolbar.docs">文档</a>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="panel panel-cats">
+        <div class="panel-head row">
+          <h2 data-i18n="panel.categories">分类</h2>
+          <button type="button" class="btn sm ghost" data-action="new-category">+</button>
+        </div>
+        <ul class="cat-list" id="cat-list"></ul>
+      </aside>
+
+      <section class="panel panel-assets" id="panel-assets">
+        <div class="panel-head row panel-head-assets">
+          <h2><span data-i18n="panel.assets">资源</span> <span class="path-legend muted sm" id="path-legend" data-i18n="panel.pathLegend" data-i18n-title="panel.pathLegendTitle" title="S=source(绿/灰) · in=inbox(绿/黄/红) · U=游戏引擎(绿/红)">S·in·U</span></h2>
+          <input type="search" id="asset-search" class="search search-inline" data-i18n-placeholder="asset.searchPlaceholder" placeholder="筛选…" />
+          <button type="button" class="btn sm ghost" data-action="new-asset">+</button>
+        </div>
+        <div class="asset-scroll" id="asset-list"></div>
+        <div class="panel-foot row panel-foot-assets">
+          <button type="button" class="btn sm ghost" data-action="scan-status" data-i18n="asset.scanStatus" data-i18n-title="asset.scanStatusTitle" title="重新扫描 source / inbox / 游戏引擎">刷新状态</button>
+          <button type="button" class="btn sm ghost" data-action="dup-asset" data-i18n="asset.duplicate" data-i18n-title="asset.duplicateTitle" title="复制当前资源">复制</button>
+          <span class="muted" id="asset-count"></span>
+        </div>
+      </section>
+
+      <div
+        class="workspace-resizer"
+        id="asset-panel-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        data-i18n-aria="resizer.aria"
+        aria-label="拖动调整资源栏宽度"
+        tabindex="0"
+      ></div>
+
+      <section class="panel panel-main">
+        <div class="preview-bar">
+          <div class="preview-stage" id="preview-stage">
+            <div class="preview-placeholder" id="preview-ph" data-i18n="preview.selectAsset">选择资源</div>
+            <div class="preview-viewport" id="preview-viewport">
+              <img id="preview-img" alt="" draggable="false" hidden />
+            </div>
+            <div class="preview-zoom-badge" id="preview-zoom-label" hidden aria-hidden="true">100%</div>
+            <div class="preview-loading" id="preview-loading" hidden aria-hidden="true">
+              <div class="fx-orbit-loader" aria-hidden="true"><span></span></div>
+              <span class="fx-loading-label" data-i18n="preview.loading">加载中…</span>
+            </div>
+          </div>
+          <div class="preview-side">
+            <div class="preview-info" id="preview-info">
+              <div class="preview-info-head">
+                <div class="preview-info-name" id="preview-info-name">—</div>
+                <div class="preview-info-sub muted" id="preview-info-sub">—</div>
+              </div>
+              <dl class="preview-dl" id="preview-dl-files"></dl>
+              <div class="preview-info-section">
+                <div class="preview-info-label" data-i18n="preview.infoConfig">配置</div>
+                <dl class="preview-dl" id="preview-dl-config"></dl>
+              </div>
+              <div class="preview-info-section">
+                <div class="preview-info-label" data-i18n="preview.infoActivity">最近动态</div>
+                <ul class="preview-activity" id="preview-activity"></ul>
+              </div>
+            </div>
+            <div class="seg">
+              <button type="button" class="seg-btn active" data-source="inbox">inbox</button>
+              <button type="button" class="seg-btn" data-source="source">source</button>
+              <button type="button" class="seg-btn" data-source="unity" data-i18n="path.engine">Engine</button>
+            </div>
+            <div class="btn-row">
+              <button type="button" class="btn sm" data-action="refresh-preview" data-i18n="preview.refresh">刷新</button>
+              <button type="button" class="btn sm" data-action="open-file" data-i18n="preview.openFile">打开文件</button>
+              <button type="button" class="btn sm primary" data-action="postprocess" data-i18n="preview.postprocess">后处理…</button>
+            </div>
+            <div class="btn-row">
+              <button type="button" class="btn sm ghost" data-action="open-inbox-dir" data-i18n="preview.inboxDir">inbox 目录</button>
+              <button type="button" class="btn sm ghost" data-action="open-source-dir" data-i18n="preview.sourceDir">source</button>
+            </div>
+          </div>
+        </div>
+
+        <nav class="tabs" id="main-tabs">
+          <button type="button" class="tab active" data-tab="ai" data-i18n="tab.ai" data-requires-asset>AI 助手</button>
+          <button type="button" class="tab" data-tab="basic" data-i18n="tab.basic" data-requires-asset>基本信息</button>
+          <button type="button" class="tab" data-tab="prompt" data-i18n="tab.prompt" data-requires-asset>提示词与工作流</button>
+          <button type="button" class="tab" data-tab="category" data-i18n="tab.category">分类设置</button>
+          <button type="button" class="tab" data-tab="settings" data-i18n="tab.settings">全局设置</button>
+        </nav>
+
+        <div class="tab-body hidden" id="tab-basic">
+          <form class="form-grid" id="form-basic">
+            <label><span data-i18n="form.id">ID</span><input name="id" readonly /></label>
+            <label><span data-i18n="form.filename">文件名</span><input name="filename" /></label>
+            <label><span data-i18n="form.category">分类</span><select name="category" id="asset-category-select"></select></label>
+            <label><span data-i18n="form.width">宽度</span><input name="width" type="number" /></label>
+            <label><span data-i18n="form.height">高度</span><input name="height" type="number" /></label>
+            <label><span data-i18n="form.seed">Seed</span><input name="seed" data-i18n-placeholder="form.seedPlaceholder" placeholder="留空=全局" /></label>
+            <label class="span2"><span data-i18n="form.subject">说明</span><input name="subject" /></label>
+            <label class="check check-modern span2"><input name="enabled" type="checkbox" /><span class="check-ui"></span><span class="check-text" data-i18n="form.enabled">启用（参与批量生成）</span></label>
+            <fieldset class="span2 radio-field">
+              <legend data-i18n="form.removeBg">剔除背景</legend>
+              <div class="radio-seg" role="radiogroup">
+                <label class="radio-seg-item">
+                  <input type="radio" name="remove_bg_mode" value="inherit" />
+                  <span class="radio-seg-label" data-i18n="form.removeBgInherit">跟随分类</span>
+                </label>
+                <label class="radio-seg-item">
+                  <input type="radio" name="remove_bg_mode" value="remove" />
+                  <span class="radio-seg-label" data-i18n="form.removeBgRemove">剔除</span>
+                </label>
+                <label class="radio-seg-item">
+                  <input type="radio" name="remove_bg_mode" value="keep" />
+                  <span class="radio-seg-label" data-i18n="form.removeBgKeep">不剔除</span>
+                </label>
+              </div>
+            </fieldset>
+            <div class="span2 form-actions">
+              <button type="submit" class="btn primary" data-i18n="form.saveBasic">保存基本信息</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="tab-body hidden" id="tab-category">
+          <form class="form-grid" id="form-category">
+            <label class="span2"><span data-i18n="form.sourcePath">source</span><input name="source" /></label>
+            <label class="span2"><span data-i18n="form.inboxPath">inbox</span><input name="inbox" /></label>
+            <label class="span2"><span data-i18n="form.enginePath">游戏引擎</span><input name="unity" /></label>
+            <label class="span2"><span data-i18n="form.checkpoint">Checkpoint</span><select name="checkpoint" id="cat-ckpt"></select></label>
+            <label class="check check-modern span2">
+              <input name="alpha_matte" type="checkbox" />
+              <span class="check-ui"></span>
+              <span class="check-text" data-i18n="form.alphaMatte">分类默认剔除纯色背景</span>
+            </label>
+            <label class="span2"><span data-i18n="form.positiveCommon">分类通用正向</span><textarea name="positive_common" rows="3"></textarea></label>
+            <label class="span2"><span data-i18n="form.negativeCommon">分类通用负向</span><textarea name="negative_common" rows="3"></textarea></label>
+            <div class="span2 form-actions">
+              <button type="submit" class="btn primary" data-i18n="form.saveCategory">保存分类设置</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="tab-body hidden" id="tab-prompt">
+          <fieldset class="radio-field gen-mode-field">
+            <legend data-i18n="form.genMode">生成模式</legend>
+            <div class="radio-seg gen-mode-seg" role="radiogroup" id="gen-mode-seg">
+              <label class="radio-seg-item">
+                <input type="radio" name="gen_mode" value="txt2img" checked />
+                <span class="radio-seg-label" data-i18n="form.genModeTxt2img">文生图</span>
+              </label>
+              <label class="radio-seg-item">
+                <input type="radio" name="gen_mode" value="img2img" />
+                <span class="radio-seg-label" data-i18n="form.genModeImg2img">图生图</span>
+              </label>
+              <label class="radio-seg-item">
+                <input type="radio" name="gen_mode" value="redraw" />
+                <span class="radio-seg-label" data-i18n="form.genModeRedraw">重绘图</span>
+              </label>
+            </div>
+          </fieldset>
+          <div id="img2img-panel" class="gen-ref-panel hidden">
+            <div id="ref-image-section" class="ref-path-block hidden">
+              <div class="ref-path-head">
+                <span class="ref-path-title" data-i18n="form.refImage">参考图</span>
+              </div>
+              <div class="ref-path-picker">
+                <input
+                  type="text"
+                  id="ref-image-path"
+                  class="ref-path-input"
+                  data-i18n-placeholder="form.refImagePlaceholder"
+                  placeholder="相对 ArtPipeline 或绝对路径"
+                  spellcheck="false"
+                />
+                <button type="button" class="ref-path-browse" data-action="pick-ref-image" data-i18n="form.pickRefImage">浏览…</button>
+              </div>
+            </div>
+            <div id="redraw-source-section" class="ref-path-block ref-path-readonly hidden">
+              <div class="ref-path-head">
+                <span class="ref-path-title" data-i18n="form.redrawSource">参考图</span>
+                <span class="ref-path-tag" data-i18n="form.redrawSourceTag">source 原图</span>
+              </div>
+              <div class="ref-path-display" id="redraw-source-path">—</div>
+            </div>
+            <label class="denoise-field">
+              <span data-i18n="form.img2imgDenoise">重绘幅度 (denoise)</span>
+              <div class="denoise-row">
+                <input type="range" id="img2img-denoise-range" min="0.01" max="1" step="0.01" value="0.65" />
+                <input type="number" id="img2img-denoise" min="0.01" max="1" step="0.01" value="0.65" />
+              </div>
+            </label>
+            <p class="muted sm gen-ref-hint" id="gen-ref-hint" data-i18n="form.img2imgHint">图生图会先上传参考图到 ComfyUI，再按 denoise 强度重绘。</p>
+          </div>
+          <div id="sdxl-split" class="hidden">
+            <label><span data-i18n="form.positiveG">正向 G（边框构图）</span><textarea id="positive-g-text" rows="4"></textarea></label>
+            <label><span data-i18n="form.positiveL">正向 L（物件主体）</span><textarea id="positive-l-text" rows="4"></textarea></label>
+          </div>
+          <label><span data-i18n="form.positive">正向 prompt</span><textarea id="positive-text" rows="8"></textarea></label>
+          <label><span data-i18n="form.negative">负向 prompt</span><textarea id="negative-text" rows="4"></textarea></label>
+          <div class="form-actions">
+            <button type="button" class="btn primary" data-action="save-prompts" data-i18n="form.savePrompts">保存提示词</button>
+          </div>
+          <label><span data-i18n="form.workflow">工作流 JSON</span><textarea id="workflow-text" rows="12" spellcheck="false"></textarea></label>
+          <div class="form-actions">
+            <button type="button" class="btn" data-action="load-default-wf" data-i18n="form.defaultTemplate">默认模板</button>
+            <button type="button" class="btn" data-action="validate-wf" data-i18n="form.validateJson">校验 JSON</button>
+            <button type="button" class="btn primary" data-action="save-wf" data-i18n="form.saveWorkflow">保存工作流</button>
+          </div>
+        </div>
+
+        <div class="tab-body hidden" id="tab-ai">
+          <div class="ai-panel">
+            <nav class="ai-mode-tabs" id="ai-mode-tabs">
+              <button type="button" class="ai-mode-tab active" data-ai-mode="free" data-i18n="ai.mode.free">自由对话</button>
+              <button type="button" class="ai-mode-tab" data-ai-mode="prompt" data-i18n="ai.mode.prompt">写提示词</button>
+              <button type="button" class="ai-mode-tab" data-ai-mode="refine" data-i18n="ai.mode.refine">优化调整</button>
+              <button type="button" class="ai-mode-tab" data-ai-mode="workflow" data-i18n="ai.mode.workflow">工作流</button>
+              <button type="button" class="ai-mode-tab" data-ai-mode="basic" data-i18n="ai.mode.basic">写基本信息</button>
+            </nav>
+            <p class="ai-mode-hint muted sm" id="ai-mode-hint"></p>
+            <div class="ai-messages" id="ai-history"></div>
+            <div class="ai-compose">
+              <textarea id="ai-input" rows="3" data-i18n-placeholder="ai.inputPlaceholder" placeholder="描述想要的图标…"></textarea>
+              <div class="ai-compose-bar">
+                <span class="muted sm" data-i18n="ai.composeHint">Ctrl+Enter 发送 · 切换页签将清空对话</span>
+                <div class="ai-compose-btns">
+                  <button type="button" class="btn sm ghost" data-action="ai-clear" data-i18n="ai.clear">清空</button>
+                  <button type="button" class="btn sm primary" id="ai-send-btn" data-action="ai-send" data-i18n="ai.send">发送</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-body hidden" id="tab-settings">
+          <form class="form-grid" id="form-settings">
+            <label class="span2"><span data-i18n="form.projectRoot">游戏引擎项目根</span><input name="project_root" /></label>
+            <label class="span2"><span data-i18n="form.artRoot">ArtPipeline 根</span><input name="art_pipeline_root" /></label>
+            <button type="button" class="btn sm ghost span2" data-action="autodetect-paths" data-i18n="form.autodetectPaths">自动检测路径</button>
+            <label><span data-i18n="form.comfyUrl">ComfyUI URL</span><input name="comfyui_url" /></label>
+            <label><span data-i18n="form.steps">Steps</span><input name="steps" type="number" /></label>
+            <label><span data-i18n="form.cfg">CFG</span><input name="cfg" type="number" step="0.1" /></label>
+            <label><span data-i18n="form.sampler">Sampler</span><input name="sampler" /></label>
+            <label><span data-i18n="form.scheduler">Scheduler</span><input name="scheduler" /></label>
+            <label><span data-i18n="form.globalSeed">全局 Seed</span><input name="seed" /></label>
+            <label><span data-i18n="form.globalCheckpoint">Checkpoint</span><select name="checkpoint" id="global-ckpt"></select></label>
+            <label class="span2"><span data-i18n="form.deepseekKey">DeepSeek API Key</span><input name="deepseek_api_key" type="password" /></label>
+            <label><span data-i18n="form.deepseekModel">DeepSeek 模型</span><select name="deepseek_model">
+              <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+              <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+            </select></label>
+            <div class="span2 form-actions">
+              <button type="button" class="btn ghost" data-action="init-workflows" data-i18n="form.initWorkflows">初始化缺失工作流</button>
+              <button type="submit" class="btn primary" data-i18n="form.saveSettings">保存全局设置</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <div class="job-float hidden" id="job-float" role="status" aria-live="polite">
+      <div class="job-float-aura" aria-hidden="true"></div>
+      <div class="job-float-card">
+        <div class="job-float-head" id="job-float-handle" data-i18n-title="job.floatDrag" title="拖动移动">
+          <div class="job-float-ring" aria-hidden="true"><span></span></div>
+          <div class="job-float-copy">
+            <div class="job-float-title" id="job-float-title" data-i18n="job.generating">生成中</div>
+            <div class="job-float-file" id="job-float-file">—</div>
+          </div>
+          <div class="job-float-pct" id="job-float-pct">0%</div>
+        </div>
+        <div class="job-float-bar">
+          <div class="job-float-track">
+            <div class="job-float-fill" id="job-float-fill"></div>
+            <div class="job-float-shimmer" aria-hidden="true"></div>
+          </div>
+          <div class="job-float-batch" id="job-float-batch"></div>
+        </div>
+        <div class="job-float-foot">
+          <span class="job-float-status" id="job-float-status"></span>
+          <button type="button" class="job-float-cancel" id="job-float-cancel" data-i18n="job.cancel">停止</button>
+        </div>
+      </div>
+    </div>
+
+    <button type="button" class="log-fab" id="log-fab" aria-expanded="false" data-i18n="log.fab" data-i18n-title="log.fabTitle" title="拖动移动 · 点击打开日志">日志</button>
+
+    <aside class="log-drawer" id="log-drawer" aria-hidden="true">
+      <div class="log-head row">
+        <strong data-i18n="log.title">运行日志</strong>
+        <select id="log-filter">
+          <option value="全部" data-i18n="log.all">全部</option>
+          <option value="操作" data-i18n="log.action">操作</option>
+          <option value="生成" data-i18n="log.generate">生成</option>
+          <option value="系统" data-i18n="log.system">系统</option>
+        </select>
+        <button type="button" class="btn sm ghost" data-action="clear-logs" data-i18n="log.clear">清空</button>
+        <button type="button" class="btn sm ghost log-close" data-action="close-logs" data-i18n-title="log.close" title="关闭">×</button>
+      </div>
+      <pre class="log-body" id="log-body"></pre>
+    </aside>
+  </div>
+
+  <dialog id="dlg-new-cat">
+    <form id="form-new-cat" novalidate>
+      <h3 data-i18n="dlg.newCategory">新建分类</h3>
+      <label><span data-i18n="dlg.categoryName">名称</span><input name="label" required /></label>
+      <label><span data-i18n="dlg.categoryId">ID（可选）</span><input name="id" data-i18n-placeholder="dlg.categoryIdPlaceholder" placeholder="英文" /></label>
+      <label>
+        <span data-i18n="dlg.categoryCheckpoint">生图模型</span>
+        <select name="checkpoint" id="new-cat-ckpt"></select>
+      </label>
+      <p class="muted sm" data-i18n="dlg.categoryCheckpointHint">选择 ComfyUI checkpoint，作为该分类的默认生图模型</p>
+      <menu>
+        <button type="button" class="btn ghost" data-dismiss data-i18n="dlg.cancel">取消</button>
+        <button type="submit" class="btn primary" data-i18n="dlg.create">创建</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-new-asset">
+    <form id="form-new-asset" novalidate>
+      <h3 data-i18n="dlg.newAsset">新建资源</h3>
+      <p class="form-error" id="new-asset-error" hidden role="alert"></p>
+      <label><span data-i18n="dlg.assetFilename">文件名</span><input name="filename" required placeholder="icon_名称.png" /></label>
+      <label><span data-i18n="dlg.assetSize">尺寸</span><input name="size" type="number" value="512" min="32" max="4096" step="1" /></label>
+      <label><span data-i18n="dlg.assetSubject">说明</span><input name="subject" /></label>
+      <p class="muted sm" data-i18n="dlg.newAssetHint">仅创建资源配置，不会连接 ComfyUI 生图；可在填写提示词后手动生成</p>
+      <menu>
+        <button type="button" class="btn ghost" data-dismiss data-i18n="dlg.cancel">取消</button>
+        <button type="submit" class="btn primary" data-i18n="dlg.create">创建</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-rename-asset">
+    <form id="form-rename-asset">
+      <h3 data-i18n="dlg.renameAsset">重命名</h3>
+      <p class="muted sm" data-i18n="dlg.renameAssetHint">将同时重命名 source、inbox、Unity 三个目录下已存在的 PNG 文件</p>
+      <label><span data-i18n="dlg.assetFilename">文件名</span><input name="filename" required placeholder="name.png" /></label>
+      <menu>
+        <button type="button" class="btn ghost" data-dismiss data-i18n="dlg.cancel">取消</button>
+        <button type="submit" class="btn primary" data-i18n="dlg.rename">重命名</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-rename-category">
+    <form id="form-rename-category">
+      <h3 data-i18n="dlg.renameCategory">重命名分类</h3>
+      <p class="muted sm" id="rename-category-id"></p>
+      <label><span data-i18n="dlg.categoryName">名称</span><input name="label" required /></label>
+      <menu>
+        <button type="button" class="btn ghost" data-dismiss data-i18n="dlg.cancel">取消</button>
+        <button type="submit" class="btn primary" data-i18n="dlg.rename">重命名</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-confirm" class="confirm-dialog">
+    <div class="confirm-dialog-inner">
+      <div class="confirm-icon danger" id="confirm-icon" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+      </div>
+      <h3 id="confirm-title"></h3>
+      <p class="confirm-message muted" id="confirm-message"></p>
+      <ul class="confirm-details hidden" id="confirm-details"></ul>
+      <menu class="confirm-actions">
+        <button type="button" class="btn ghost" id="confirm-cancel" data-i18n="dlg.cancel">取消</button>
+        <button type="button" class="btn danger" id="confirm-ok"></button>
+      </menu>
+    </div>
+  </dialog>
+
+  <div class="ctx-menu hidden" id="cat-ctx-menu" role="menu" data-i18n-aria="ctx.catMenuAria" aria-label="分类菜单">
+    <button type="button" class="ctx-item" data-ctx="rename" data-i18n="ctx.catRename">重命名…</button>
+    <div class="ctx-sep" role="separator"></div>
+    <button type="button" class="ctx-item danger" data-ctx="delete" data-i18n="ctx.catDelete">删除分类</button>
+  </div>
+
+  <div class="ctx-menu hidden" id="asset-ctx-menu" role="menu" data-i18n-aria="ctx.menuAria" aria-label="资源菜单">
+    <button type="button" class="ctx-item" data-ctx="rename" data-i18n="ctx.rename">重命名…</button>
+    <div class="ctx-sep" role="separator"></div>
+    <button type="button" class="ctx-item" data-ctx="postprocess" data-i18n="ctx.postprocess">后处理…</button>
+    <div class="ctx-sep" role="separator"></div>
+    <button type="button" class="ctx-item" data-ctx="open-source" data-i18n="ctx.openSource">打开 source 文件</button>
+    <button type="button" class="ctx-item" data-ctx="open-inbox" data-i18n="ctx.openInbox">打开 inbox 文件</button>
+    <button type="button" class="ctx-item" data-ctx="open-unity" data-i18n="ctx.openEngine">打开游戏引擎文件</button>
+    <div class="ctx-sep" role="separator"></div>
+    <button type="button" class="ctx-item" data-ctx="refresh" data-i18n="ctx.refresh">刷新</button>
+    <div class="ctx-sep" role="separator"></div>
+    <button type="button" class="ctx-item danger" data-ctx="delete" data-i18n="ctx.delete">删除</button>
+  </div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

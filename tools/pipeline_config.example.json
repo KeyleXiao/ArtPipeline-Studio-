@@ -1,0 +1,996 @@
+{
+  "version": 1,
+  "defaults": {
+    "comfyui_url": "http://127.0.0.1:8188",
+    "checkpoint": "animagineXL_v3.safetensors",
+    "steps": 35,
+    "cfg": 7.0,
+    "sampler": "euler_ancestral",
+    "scheduler": "normal",
+    "deepseek_api_key": "",
+    "deepseek_model": "deepseek-v4-flash",
+    "category_overrides": {
+      "items": {
+        "steps": 30,
+        "cfg": 6.5
+      },
+      "skills": {
+        "steps": 30,
+        "cfg": 6.5
+      }
+    },
+    "project_root": "",
+    "art_pipeline_root": ""
+  },
+  "categories": [
+    {
+      "id": "roles",
+      "label": "角色头像",
+      "source": "source/roles",
+      "inbox": "inbox/roles",
+      "unity": "Assets/Art/UI/Icons/Roles",
+      "default_workflow": "workflows/_default_sdxl_api.json",
+      "checkpoint": "",
+      "lora": "",
+      "lora_strength": 0.0,
+      "positive_common": "transparent background, alpha channel, isolated subject, clean cutout, no backdrop, no floor, no cast shadow on ground",
+      "negative_common": "solid background, opaque background, white background, black background, gradient background, colored backdrop, scenery, environment, vignette",
+      "alpha_matte": "default"
+    },
+    {
+      "id": "items",
+      "label": "道具 icon",
+      "source": "source/items",
+      "inbox": "inbox/items",
+      "unity": "Assets/Art/UI/Icons/Items",
+      "default_workflow": "workflows/_item_icon_gii_api.json",
+      "checkpoint": "",
+      "lora": "",
+      "lora_strength": 0.0,
+      "positive_common": "transparent background, alpha channel, isolated subject, clean cutout, no backdrop, no floor, no cast shadow on ground",
+      "negative_common": "solid background, opaque background, white background, black background, gradient background, colored backdrop, scenery, environment, vignette",
+      "alpha_matte": "default"
+    },
+    {
+      "id": "skills",
+      "label": "技能 icon",
+      "source": "source/skills",
+      "inbox": "inbox/skills",
+      "unity": "Assets/Art/UI/Icons/Skills",
+      "default_workflow": "workflows/_item_icon_gii_api.json",
+      "checkpoint": "",
+      "lora": "",
+      "lora_strength": 0.0,
+      "positive_common": "transparent background, alpha channel, isolated subject, clean cutout, no backdrop, no floor, no cast shadow on ground",
+      "negative_common": "solid background, opaque background, white background, black background, gradient background, colored backdrop, scenery, environment, vignette",
+      "alpha_matte": "default"
+    },
+    {
+      "id": "ui_status",
+      "label": "UI 状态标志",
+      "source": "source/ui_status",
+      "inbox": "inbox/ui_status",
+      "unity": "Assets/Art/UI/Icons/UI/Status",
+      "default_workflow": "workflows/_default_sdxl_api.json",
+      "checkpoint": "",
+      "lora": "",
+      "lora_strength": 0.0,
+      "positive_common": "transparent background, alpha channel, isolated subject, clean cutout, no backdrop, no floor, no cast shadow on ground",
+      "negative_common": "solid background, opaque background, white background, black background, gradient background, colored backdrop, scenery, environment, vignette",
+      "alpha_matte": "default"
+    },
+    {
+      "id": "ui_frames",
+      "label": "UI 边框",
+      "source": "source/ui_frames",
+      "inbox": "inbox/ui_frames",
+      "unity": "Assets/Art/UI/Icons/UI/Frames",
+      "default_workflow": "workflows/_default_sdxl_api.json",
+      "checkpoint": "",
+      "lora": "",
+      "lora_strength": 0.0,
+      "positive_common": "transparent background, alpha channel, isolated subject, clean cutout, no backdrop, no floor, no cast shadow on ground",
+      "negative_common": "solid background, opaque background, white background, black background, gradient background, colored backdrop, scenery, environment, vignette",
+      "alpha_matte": "default"
+    },
+    {
+      "id": "ui_buttons",
+      "label": "UI 按钮",
+      "source": "source/ui_buttons",
+      "inbox": "inbox/ui_buttons",
+      "unity": "Assets/Art/UI/Icons/UI/Buttons",
+      "default_workflow": "workflows/_default_sdxl_api.json",
+      "checkpoint": "",
+      "lora": "",
+      "lora_strength": 0.0,
+      "positive_common": "transparent background, alpha channel, isolated subject, clean cutout, no backdrop, no floor, no cast shadow on ground",
+      "negative_common": "solid background, opaque background, white background, black background, gradient background, colored backdrop, scenery, environment, vignette",
+      "alpha_matte": "default"
+    },
+    {
+      "id": "ui_combat",
+      "label": "开枪贴图",
+      "source": "source/ui_combat",
+      "inbox": "inbox/ui_combat",
+      "unity": "Assets/Art/UI/Icons/UI/Combat",
+      "default_workflow": "workflows/_default_sdxl_api.json",
+      "checkpoint": "",
+      "lora": "",
+      "lora_strength": 0.0,
+      "positive_common": "transparent background, alpha channel, isolated subject, clean cutout, no backdrop, no floor, no cast shadow on ground",
+      "negative_common": "solid background, opaque background, white background, black background, gradient background, colored backdrop, scenery, environment, vignette",
+      "alpha_matte": "default"
+    },
+    {
+      "id": "backgrounds",
+      "label": "背景海报",
+      "source": "source/backgrounds",
+      "inbox": "inbox/backgrounds",
+      "unity": "Assets/Art/UI",
+      "default_workflow": "workflows/_default_sdxl_api.json",
+      "checkpoint": "",
+      "lora": "",
+      "lora_strength": 0.0,
+      "positive_common": "transparent background, alpha channel, isolated subject, clean cutout, no backdrop, no floor, no cast shadow on ground",
+      "negative_common": "solid background, opaque background, white background, black background, gradient background, colored backdrop, scenery, environment, vignette",
+      "alpha_matte": "none"
+    },
+    {
+      "id": "avatar",
+      "label": "半身像",
+      "source": "source/avatar",
+      "inbox": "inbox/avatar",
+      "unity": "Assets/Art/UI/Icons/Avatar",
+      "default_workflow": "workflows/_default_sdxl_api.json",
+      "checkpoint": "animagineXL_v3.safetensors",
+      "lora": "",
+      "lora_strength": 0.7,
+      "positive_common": "(transparent background:1.4), (alpha channel:1.25), isolated subject, clean cutout sticker, simple flat background, single color backdrop, no scenery, floating object",
+      "negative_common": "(solid background:1.35), (opaque background:1.25), complex background, detailed background, white background, black background, grey background, gradient background, colored backdrop, scenery, environment, floor, ground, wall, room, studio backdrop, vignette, cast shadow on ground",
+      "alpha_matte": "border"
+    }
+  ],
+  "assets": [
+    {
+      "id": "role_dealer",
+      "filename": "role_dealer.png",
+      "category": "roles",
+      "width": 512,
+      "height": 512,
+      "subject": "1girl, solo, beautiful mature woman, casino dealer, croupier",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, 1girl, solo, beautiful mature woman, casino dealer, croupier, complete face, purple and gold tailcoat, white opera gloves, both hands holding poker chips and cards, square image, 1:1 aspect ratio, from waist up, cowboy shot, upper body, complete face visible, detailed eyes, detailed face, both arms visible, both hands visible, shoulders fully visible, chest visible, subject fills 90 percent of frame, large character, zoomed in, centered, looking at viewer, edge-to-edge character, minimal empty background, detailed shading, painterly, dark fantasy, demon roulette, game character icon, ornate details, intricate patterns, engraved gold trim",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, head only, face only, missing face, empty hood, floating head, missing arms, no arms, missing hands, incomplete body, tiny character, wide shot, full body, chibi",
+      "positive_g": "",
+      "positive_l": "",
+      "workflow": "workflows/assets/role_dealer.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "remove_bg_mode": "keep",
+      "postprocess": {
+        "canvas": {
+          "width": 512,
+          "height": 512
+        },
+        "layers": [
+          {
+            "id": "32daa912",
+            "name": "主体",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": 5.596615649608012,
+              "offset_y": 49.25021771655037,
+              "scale": 1.19,
+              "anchor": "center"
+            },
+            "source": "$asset",
+            "is_subject": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "role_magician",
+      "filename": "role_magician.png",
+      "category": "roles",
+      "width": 512,
+      "height": 512,
+      "subject": "1girl, solo, stage magician, complete face, top hat, magic w",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, 1girl, solo, stage magician, complete face, top hat, magic wand, both arms visible, purple magic particles, floating bullet shells, square image, 1:1 aspect ratio, from waist up, cowboy shot, upper body, complete face visible, detailed eyes, detailed face, both arms visible, both hands visible, shoulders fully visible, chest visible, subject fills 90 percent of frame, large character, zoomed in, centered, looking at viewer, edge-to-edge character, minimal empty background, detailed shading, painterly, dark fantasy, demon roulette, game character icon, ornate details, intricate patterns, engraved gold trim",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, head only, face only, missing face, empty hood, floating head, missing arms, no arms, missing hands, incomplete body, tiny character, wide shot, full body, chibi",
+      "positive_g": "",
+      "positive_l": "",
+      "workflow": "workflows/assets/role_magician.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "remove_bg_mode": "keep",
+      "postprocess": {
+        "canvas": {
+          "width": 512,
+          "height": 512
+        },
+        "layers": [
+          {
+            "id": "ff04f42a",
+            "name": "主体",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": 0.0,
+              "offset_y": 0.0,
+              "scale": 1.55,
+              "anchor": "center"
+            },
+            "source": "$asset",
+            "is_subject": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "role_gambler",
+      "filename": "role_gambler.png",
+      "category": "roles",
+      "width": 512,
+      "height": 512,
+      "subject": "1boy, solo, gambler, roguish smirk, complete face, dice in h",
+      "workflow": "workflows/assets/role_gambler.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, 1boy, solo, gambler, roguish smirk, complete face, dice in hand, both hands visible, leather vest, spyglass monocle, golden luck aura, square image, 1:1 aspect ratio, from waist up, cowboy shot, upper body, complete face visible, detailed eyes, detailed face, both arms visible, both hands visible, shoulders fully visible, chest visible, subject fills 90 percent of frame, large character, zoomed in, centered, looking at viewer, edge-to-edge character, minimal empty background, detailed shading, painterly, dark fantasy, demon roulette, game character icon, ornate details, intricate patterns, engraved gold trim",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, head only, face only, missing face, empty hood, floating head, missing arms, no arms, missing hands, incomplete body, tiny character, wide shot, full body, chibi",
+      "remove_bg_mode": "keep",
+      "postprocess": {
+        "canvas": {
+          "width": 512,
+          "height": 512
+        },
+        "layers": [
+          {
+            "id": "b16388e4",
+            "name": "主体",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": 1.4215114664888802,
+              "offset_y": 135.0435893164529,
+              "scale": 1.53,
+              "anchor": "center"
+            },
+            "source": "$asset",
+            "is_subject": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "role_warrior",
+      "filename": "role_warrior.png",
+      "category": "roles",
+      "width": 512,
+      "height": 512,
+      "subject": "1boy, solo, knight warrior, complete face, gold pauldrons, b",
+      "workflow": "workflows/assets/role_warrior.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, 1boy, solo, knight warrior, complete face, gold pauldrons, breastplate, both hands gripping sword hilt, protective shield aura, square image, 1:1 aspect ratio, from waist up, cowboy shot, upper body, complete face visible, detailed eyes, detailed face, both arms visible, both hands visible, shoulders fully visible, chest visible, subject fills 90 percent of frame, large character, zoomed in, centered, looking at viewer, edge-to-edge character, minimal empty background, detailed shading, painterly, dark fantasy, demon roulette, game character icon, ornate details, intricate patterns, engraved gold trim",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, head only, face only, missing face, empty hood, floating head, missing arms, no arms, missing hands, incomplete body, tiny character, wide shot, full body, chibi",
+      "remove_bg_mode": "keep",
+      "postprocess": {
+        "canvas": {
+          "width": 512,
+          "height": 512
+        },
+        "layers": [
+          {
+            "id": "563ac85c",
+            "name": "主体",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": 7.549343803973898,
+              "offset_y": 212.22044248948916,
+              "scale": 1.83,
+              "anchor": "center"
+            },
+            "source": "$asset",
+            "is_subject": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "role_mercenary",
+      "filename": "role_mercenary.png",
+      "category": "roles",
+      "width": 512,
+      "height": 512,
+      "subject": "1boy, solo, mercenary, eyepatch, complete face, both arms vi",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, 1boy, solo, mercenary, eyepatch, complete face, both arms visible, revolver, red rage potion vial, red aura particles, square image, 1:1 aspect ratio, from waist up, cowboy shot, upper body, complete face visible, detailed eyes, detailed face, both arms visible, both hands visible, shoulders fully visible, chest visible, subject fills 90 percent of frame, large character, zoomed in, centered, looking at viewer, edge-to-edge character, minimal empty background, detailed shading, painterly, dark fantasy, demon roulette, game character icon, ornate details, intricate patterns, engraved gold trim",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, head only, face only, missing face, empty hood, floating head, missing arms, no arms, missing hands, incomplete body, tiny character, wide shot, full body, chibi",
+      "positive_g": "",
+      "positive_l": "",
+      "workflow": "workflows/assets/role_mercenary.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "remove_bg_mode": "keep",
+      "postprocess": {
+        "canvas": {
+          "width": 512,
+          "height": 512
+        },
+        "layers": [
+          {
+            "id": "b3aece66",
+            "name": "主体",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": -0.7107557332445253,
+              "offset_y": 105.19184852018438,
+              "scale": 1.47,
+              "anchor": "center"
+            },
+            "source": "$asset",
+            "is_subject": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "role_doctor",
+      "filename": "role_doctor.png",
+      "category": "roles",
+      "width": 512,
+      "height": 512,
+      "subject": "1girl, solo, doctor apothecary, complete face, dark medical ",
+      "workflow": "workflows/assets/role_doctor.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, 1girl, solo, doctor apothecary, complete face, dark medical robe, both hands holding syringe and glowing potion vial, toxic green mist, square image, 1:1 aspect ratio, from waist up, cowboy shot, upper body, complete face visible, detailed eyes, detailed face, both arms visible, both hands visible, shoulders fully visible, chest visible, subject fills 90 percent of frame, large character, zoomed in, centered, looking at viewer, edge-to-edge character, minimal empty background, detailed shading, painterly, dark fantasy, demon roulette, game character icon, ornate details, intricate patterns, engraved gold trim",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, head only, face only, missing face, empty hood, floating head, missing arms, no arms, missing hands, incomplete body, tiny character, wide shot, full body, chibi",
+      "remove_bg_mode": "keep",
+      "postprocess": {
+        "canvas": {
+          "width": 512,
+          "height": 512
+        },
+        "layers": [
+          {
+            "id": "d413e620",
+            "name": "主体",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": 10.128628855490234,
+              "offset_y": 23.418868755083906,
+              "scale": 1.05,
+              "anchor": "center"
+            },
+            "source": "$asset",
+            "is_subject": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "role_traitor",
+      "filename": "role_traitor.png",
+      "category": "roles",
+      "width": 512,
+      "height": 512,
+      "subject": "1boy, solo, hooded figure, smooth blank oval face skin under",
+      "workflow": "workflows/assets/role_traitor.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, 1boy, solo, hooded figure, smooth blank oval face skin under hood, no eyes no nose no mouth, both forearms crossed over chest, dark purple cloak, gold trim, square image, 1:1 aspect ratio, from waist up, cowboy shot, upper body, complete face visible, detailed eyes, detailed face, both arms visible, both hands visible, shoulders fully visible, chest visible, subject fills 90 percent of frame, large character, zoomed in, centered, looking at viewer, edge-to-edge character, minimal empty background, detailed shading, painterly, dark fantasy, demon roulette, game character icon, ornate details, intricate patterns, engraved gold trim",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, head only, face only, missing face, empty hood, floating head, missing arms, no arms, missing hands, incomplete body, tiny character, wide shot, full body, chibi, eyes, nose, mouth, lips, smile, teeth, facial features",
+      "remove_bg_mode": "keep",
+      "postprocess": {
+        "canvas": {
+          "width": 512,
+          "height": 512
+        },
+        "layers": [
+          {
+            "id": "ca4c0834",
+            "name": "主体",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": 0.0,
+              "offset_y": 96.0,
+              "scale": 1.38,
+              "anchor": "center"
+            },
+            "source": "$asset",
+            "is_subject": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "item_spyglass",
+      "filename": "item_spyglass.png",
+      "category": "items",
+      "width": 256,
+      "height": 256,
+      "subject": "窥视镜 · 放大镜 + 紫蓝魔法光",
+      "positive": "gmic_(3dicon), brass magnifying glass with round glass lens and short handle, purple and blue mystical glow on lens, soft magical sparkle, warm copper gold metal shine, game item icon, single object, centered, fills canvas, western game art gmic_(3dicon), brass magnifying glass with round glass lens and short handle, purple and blue mystical glow on lens, soft magical sparkle, warm copper gold metal shine, detailed game prop icon, high quality, no humans",
+      "negative": "lowres, text, error, watermark, signature, blurry, worst quality, low quality, jpeg artifacts, human, face, character, person, abstract symbol, unrecognizable object, curtain, wallpaper, architecture, ui background, tiny object, zoomed out, lots of empty space, white background, anime, manga, photorealistic photo, multiple objects, wrong item, cluttered scene, item name text, letters, numbers, icon grid, sprite sheet, multiple icons, collage",
+      "positive_g": "gmic_(3dicon), brass magnifying glass with round glass lens and short handle, purple and blue mystical glow on lens, soft magical sparkle, warm copper gold metal shine, game item icon, single object, centered, fills canvas, western game art",
+      "positive_l": "gmic_(3dicon), brass magnifying glass with round glass lens and short handle, purple and blue mystical glow on lens, soft magical sparkle, warm copper gold metal shine, detailed game prop icon, high quality, no humans",
+      "workflow": "workflows/assets/item_spyglass.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "remove_bg_mode": "remove",
+      "postprocess": {
+        "canvas": {
+          "width": 256,
+          "height": 256
+        },
+        "layers": [
+          {
+            "id": "98fd5a08",
+            "name": "主体",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": 9.0,
+              "offset_y": 5.0,
+              "scale": 1.0,
+              "anchor": "center"
+            },
+            "source": "",
+            "is_subject": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "item_eject_drink",
+      "filename": "item_eject_drink.png",
+      "category": "items",
+      "width": 256,
+      "height": 256,
+      "subject": "退弹饮 · 绿色药瓶 + 弹壳弹出",
+      "positive": "gmic_(3dicon), dark green glass medicine bottle with narrow neck and cork stopper, brass bullet cartridge popping out of bottle mouth, green potion glow inside, small eject motion sparkle, game item icon, single object, centered, fills canvas, western game art gmic_(3dicon), dark green glass medicine bottle with narrow neck and cork stopper, brass bullet cartridge popping out of bottle mouth, green potion glow inside, small eject motion sparkle, detailed game prop icon, high quality, no humans",
+      "negative": "lowres, text, error, watermark, signature, blurry, worst quality, low quality, jpeg artifacts, human, face, character, person, abstract symbol, unrecognizable object, curtain, wallpaper, architecture, ui background, tiny object, zoomed out, lots of empty space, white background, anime, manga, photorealistic photo, multiple objects, wrong item, cluttered scene, item name text, letters, numbers, icon grid, sprite sheet, multiple icons, collage",
+      "positive_g": "gmic_(3dicon), dark green glass medicine bottle with narrow neck and cork stopper, brass bullet cartridge popping out of bottle mouth, green potion glow inside, small eject motion sparkle, game item icon, single object, centered, fills canvas, western game art",
+      "positive_l": "gmic_(3dicon), dark green glass medicine bottle with narrow neck and cork stopper, brass bullet cartridge popping out of bottle mouth, green potion glow inside, small eject motion sparkle, detailed game prop icon, high quality, no humans",
+      "workflow": "workflows/assets/item_eject_drink.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "remove_bg_mode": "remove",
+      "postprocess": {
+        "canvas": {
+          "width": 256,
+          "height": 256
+        },
+        "layers": [
+          {
+            "id": "883fe19a",
+            "name": "主体",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": 0.0,
+              "offset_y": 0.0,
+              "scale": 1.2526132404181185,
+              "anchor": "center"
+            },
+            "source": "$asset",
+            "is_subject": true
+          },
+          {
+            "id": "2298931a",
+            "name": "图片",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": 0.0,
+              "offset_y": 0.0,
+              "scale": 1.0,
+              "anchor": "center"
+            },
+            "source": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "item_rage_potion",
+      "filename": "item_rage_potion.png",
+      "category": "items",
+      "width": 256,
+      "height": 256,
+      "subject": "狂暴剂 · 锯齿药瓶 + 沸腾红液火星",
+      "workflow": "workflows/assets/item_rage_potion.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive_g": "gmic_(3dicon), jagged cracked glass potion bottle, boiling dark red liquid inside, orange fire sparks rising from neck, glowing red heat aura, bubbling foam, game item icon, single object, centered, fills canvas, western game art",
+      "positive_l": "gmic_(3dicon), jagged cracked glass potion bottle, boiling dark red liquid inside, orange fire sparks rising from neck, glowing red heat aura, bubbling foam, detailed game prop icon, high quality, no humans",
+      "positive": "gmic_(3dicon), jagged cracked glass potion bottle, boiling dark red liquid inside, orange fire sparks rising from neck, glowing red heat aura, bubbling foam, game item icon, single object, centered, fills canvas, western game art gmic_(3dicon), jagged cracked glass potion bottle, boiling dark red liquid inside, orange fire sparks rising from neck, glowing red heat aura, bubbling foam, detailed game prop icon, high quality, no humans",
+      "negative": "lowres, text, error, watermark, signature, blurry, worst quality, low quality, jpeg artifacts, human, face, character, person, abstract symbol, unrecognizable object, curtain, wallpaper, architecture, ui background, tiny object, zoomed out, lots of empty space, white background, anime, manga, photorealistic photo, multiple objects, wrong item, cluttered scene, item name text, letters, numbers, icon grid, sprite sheet, multiple icons, collage",
+      "remove_bg_mode": "keep",
+      "postprocess": {
+        "canvas": {
+          "width": 256,
+          "height": 256
+        },
+        "layers": [
+          {
+            "id": "a2785cc2",
+            "name": "主体",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": -0.4387381069410381,
+              "offset_y": 0.4387381069410381,
+              "scale": 1.39,
+              "anchor": "center"
+            },
+            "source": "$asset",
+            "is_subject": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "item_amulet",
+      "filename": "item_amulet.png",
+      "category": "items",
+      "width": 256,
+      "height": 256,
+      "subject": "护身符 · 金吊坠 + 暗红宝石",
+      "positive": "gmic_(3dicon), gold pendant necklace with oval medallion and chain loop, dark ruby red gem in center, soft holy golden protective shimmer, engraved rune glow, game item icon, single object, centered, fills canvas, western game art gmic_(3dicon), gold pendant necklace with oval medallion and chain loop, dark ruby red gem in center, soft holy golden protective shimmer, engraved rune glow, detailed game prop icon, high quality, no humans",
+      "negative": "lowres, text, error, watermark, signature, blurry, worst quality, low quality, jpeg artifacts, human, face, character, person, abstract symbol, unrecognizable object, curtain, wallpaper, architecture, ui background, tiny object, zoomed out, lots of empty space, white background, anime, manga, photorealistic photo, multiple objects, wrong item, cluttered scene, item name text, letters, numbers, icon grid, sprite sheet, multiple icons, collage",
+      "positive_g": "gmic_(3dicon), gold pendant necklace with oval medallion and chain loop, dark ruby red gem in center, soft holy golden protective shimmer, engraved rune glow, game item icon, single object, centered, fills canvas, western game art",
+      "positive_l": "gmic_(3dicon), gold pendant necklace with oval medallion and chain loop, dark ruby red gem in center, soft holy golden protective shimmer, engraved rune glow, detailed game prop icon, high quality, no humans",
+      "workflow": "workflows/assets/item_amulet.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "remove_bg_mode": "remove"
+    },
+    {
+      "id": "item_milk_tea",
+      "filename": "item_milk_tea.png",
+      "category": "items",
+      "width": 256,
+      "height": 256,
+      "subject": "奶茶 · 珍珠奶茶杯 + 金边",
+      "workflow": "workflows/assets/item_milk_tea.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive_g": "gmic_(3dicon), ceramic bubble tea cup with wide straw hole and visible tapioca pearls inside, warm milk tea brown liquid, black pearl shine, subtle steam wisps, gold rim highlight, game item icon, single object, centered, fills canvas, western game art",
+      "positive_l": "gmic_(3dicon), ceramic bubble tea cup with wide straw hole and visible tapioca pearls inside, warm milk tea brown liquid, black pearl shine, subtle steam wisps, gold rim highlight, detailed game prop icon, high quality, no humans",
+      "positive": "gmic_(3dicon), ceramic bubble tea cup with wide straw hole and visible tapioca pearls inside, warm milk tea brown liquid, black pearl shine, subtle steam wisps, gold rim highlight, game item icon, single object, centered, fills canvas, western game art gmic_(3dicon), ceramic bubble tea cup with wide straw hole and visible tapioca pearls inside, warm milk tea brown liquid, black pearl shine, subtle steam wisps, gold rim highlight, detailed game prop icon, high quality, no humans",
+      "negative": "lowres, text, error, watermark, signature, blurry, worst quality, low quality, jpeg artifacts, human, face, character, person, abstract symbol, unrecognizable object, curtain, wallpaper, architecture, ui background, tiny object, zoomed out, lots of empty space, white background, anime, manga, photorealistic photo, multiple objects, wrong item, cluttered scene, item name text, letters, numbers, icon grid, sprite sheet, multiple icons, collage",
+      "remove_bg_mode": "keep",
+      "postprocess": {
+        "canvas": {
+          "width": 256,
+          "height": 256
+        },
+        "layers": [
+          {
+            "id": "76f01ccc",
+            "name": "主体",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": 0.0,
+              "offset_y": 0.0,
+              "scale": 1.3245644599303137,
+              "anchor": "center"
+            },
+            "source": "$asset",
+            "is_subject": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "item_expired_pill",
+      "filename": "item_expired_pill.png",
+      "category": "items",
+      "width": 256,
+      "height": 256,
+      "subject": "过期药片 · 白色药片 + 泡罩 + 发黑变色",
+      "positive": "gmic_(3dicon), single round white medicine pill tablet in silver aluminum blister pack, one plastic cavity opened, expired pill turned dark grey and black at edges, yellow-brown discoloration spots, chalky stale surface, fine crack lines, faint sickly green toxic haze, game item icon, single object, centered, fills canvas, western game art gmic_(3dicon), single round white medicine pill tablet in silver aluminum blister pack, one plastic cavity opened, expired pill turned dark grey and black at edges, yellow-brown discoloration spots, chalky stale surface, fine crack lines, faint sickly green toxic haze, detailed game prop icon, high quality, no humans",
+      "negative": "lowres, text, error, watermark, signature, blurry, worst quality, low quality, jpeg artifacts, human, face, character, person, abstract symbol, unrecognizable object, curtain, wallpaper, architecture, ui background, tiny object, zoomed out, lots of empty space, white background, anime, manga, photorealistic photo, multiple objects, wrong item, cluttered scene, item name text, letters, numbers, icon grid, sprite sheet, multiple icons, collage",
+      "positive_g": "gmic_(3dicon), single round white medicine pill tablet in silver aluminum blister pack, one plastic cavity opened, expired pill turned dark grey and black at edges, yellow-brown discoloration spots, chalky stale surface, fine crack lines, faint sickly green toxic haze, game item icon, single object, centered, fills canvas, western game art",
+      "positive_l": "gmic_(3dicon), single round white medicine pill tablet in silver aluminum blister pack, one plastic cavity opened, expired pill turned dark grey and black at edges, yellow-brown discoloration spots, chalky stale surface, fine crack lines, faint sickly green toxic haze, detailed game prop icon, high quality, no humans",
+      "workflow": "workflows/assets/item_expired_pill.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "remove_bg_mode": "remove",
+      "postprocess": {
+        "canvas": {
+          "width": 256,
+          "height": 256
+        },
+        "layers": [
+          {
+            "id": "58b910d5",
+            "name": "主体",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": 0.0,
+              "offset_y": 0.0,
+              "scale": 1.35,
+              "anchor": "center"
+            },
+            "source": "$asset",
+            "is_subject": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "item_steal_hand",
+      "filename": "item_steal_hand.png",
+      "category": "items",
+      "width": 256,
+      "height": 256,
+      "subject": "妙手空空 · 黑手套 + 金筹码",
+      "positive": "gmic_(3dicon), single black leather glove hand clutching gold poker chips, dark purple shadow aura on cuff, gold chip glint sparkle, sly motion trail, game item icon, single object, centered, fills canvas, western game art gmic_(3dicon), single black leather glove hand clutching gold poker chips, dark purple shadow aura on cuff, gold chip glint sparkle, sly motion trail, detailed game prop icon, high quality, no humans",
+      "negative": "",
+      "positive_g": "gmic_(3dicon), single black leather glove hand clutching gold poker chips, dark purple shadow aura on cuff, gold chip glint sparkle, sly motion trail, game item icon, single object, centered, fills canvas, western game art",
+      "positive_l": "gmic_(3dicon), single black leather glove hand clutching gold poker chips, dark purple shadow aura on cuff, gold chip glint sparkle, sly motion trail, detailed game prop icon, high quality, no humans",
+      "workflow": "workflows/assets/item_steal_hand.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "remove_bg_mode": "remove",
+      "postprocess": {
+        "canvas": {
+          "width": 256,
+          "height": 256
+        },
+        "layers": [
+          {
+            "id": "611bb21f",
+            "name": "主体",
+            "type": "image",
+            "visible": true,
+            "locked": false,
+            "opacity": 1.0,
+            "transform": {
+              "offset_x": 0.0,
+              "offset_y": 0.0,
+              "scale": 1.437630662020906,
+              "anchor": "center"
+            },
+            "source": "$asset",
+            "is_subject": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "item_inverter",
+      "filename": "item_inverter.png",
+      "category": "items",
+      "width": 256,
+      "height": 256,
+      "subject": "置换器 · 左轮弹巢 + 红灰子弹",
+      "positive": "gmic_(3dicon), revolver cylinder drum seen from front showing two bullet chambers, red live bullet glowing in one slot, gray blank bullet in other slot, brass flip arrow indicator, metallic gleam, game item icon, single object, centered, fills canvas, western game art gmic_(3dicon), revolver cylinder drum seen from front showing two bullet chambers, red live bullet glowing in one slot, gray blank bullet in other slot, brass flip arrow indicator, metallic gleam, detailed game prop icon, high quality, no humans",
+      "negative": "lowres, text, error, watermark, signature, blurry, worst quality, low quality, jpeg artifacts, human, face, character, person, abstract symbol, unrecognizable object, curtain, wallpaper, architecture, ui background, tiny object, zoomed out, lots of empty space, white background, anime, manga, photorealistic photo, multiple objects, wrong item, cluttered scene, item name text, letters, numbers, icon grid, sprite sheet, multiple icons, collage",
+      "positive_g": "gmic_(3dicon), revolver cylinder drum seen from front showing two bullet chambers, red live bullet glowing in one slot, gray blank bullet in other slot, brass flip arrow indicator, metallic gleam, game item icon, single object, centered, fills canvas, western game art",
+      "positive_l": "gmic_(3dicon), revolver cylinder drum seen from front showing two bullet chambers, red live bullet glowing in one slot, gray blank bullet in other slot, brass flip arrow indicator, metallic gleam, detailed game prop icon, high quality, no humans",
+      "workflow": "workflows/assets/item_inverter.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "remove_bg_mode": "remove"
+    },
+    {
+      "id": "skill_gambler_luck",
+      "filename": "skill_gambler_luck.png",
+      "category": "skills",
+      "width": 128,
+      "height": 128,
+      "subject": "好运连连 · 赌徒被动",
+      "positive": "gmic_(3dicon), pair of golden dice with lucky clover charm, sparkling gold luck aura, soft green fortune glow, game skill icon, single symbol, centered, fills canvas, western dark fantasy game art gmic_(3dicon), pair of golden dice with lucky clover charm, sparkling gold luck aura, soft green fortune glow, detailed skill ability icon, high quality, no humans",
+      "negative": "lowres, text, error, watermark, signature, blurry, worst quality, low quality, jpeg artifacts, human, face, character, person, abstract symbol, unrecognizable object, curtain, wallpaper, architecture, ui background, tiny object, zoomed out, lots of empty space, white background, anime, manga, photorealistic photo, multiple objects, wrong item, cluttered scene, item name text, letters, numbers, icon grid, sprite sheet, multiple icons, collage",
+      "positive_g": "gmic_(3dicon), pair of golden dice with lucky clover charm, sparkling gold luck aura, soft green fortune glow, game skill icon, single symbol, centered, fills canvas, western dark fantasy game art",
+      "positive_l": "gmic_(3dicon), pair of golden dice with lucky clover charm, sparkling gold luck aura, soft green fortune glow, detailed skill ability icon, high quality, no humans",
+      "workflow": "workflows/assets/skill_gambler_luck.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "remove_bg_mode": "remove"
+    },
+    {
+      "id": "skill_dealer_prophet",
+      "filename": "skill_dealer_prophet.png",
+      "category": "skills",
+      "width": 128,
+      "height": 128,
+      "subject": "先知 · 庄家被动",
+      "workflow": "workflows/assets/skill_dealer_prophet.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive_g": "gmic_(3dicon), mystical all-seeing eye above fanned playing cards, purple prophecy glow, faint future ripple, game skill icon, single symbol, centered, fills canvas, western dark fantasy game art",
+      "positive_l": "gmic_(3dicon), mystical all-seeing eye above fanned playing cards, purple prophecy glow, faint future ripple, detailed skill ability icon, high quality, no humans",
+      "positive": "gmic_(3dicon), mystical all-seeing eye above fanned playing cards, purple prophecy glow, faint future ripple, game skill icon, single symbol, centered, fills canvas, western dark fantasy game art gmic_(3dicon), mystical all-seeing eye above fanned playing cards, purple prophecy glow, faint future ripple, detailed skill ability icon, high quality, no humans",
+      "negative": "lowres, text, error, watermark, signature, blurry, worst quality, low quality, jpeg artifacts, human, face, character, person, abstract symbol, unrecognizable object, curtain, wallpaper, architecture, ui background, tiny object, zoomed out, lots of empty space, white background, anime, manga, photorealistic photo, multiple objects, wrong item, cluttered scene, item name text, letters, numbers, icon grid, sprite sheet, multiple icons, collage",
+      "remove_bg_mode": "remove"
+    },
+    {
+      "id": "skill_magician_trajectory",
+      "filename": "skill_magician_trajectory.png",
+      "category": "skills",
+      "width": 128,
+      "height": 128,
+      "subject": "弹道操控 · 魔术师主动",
+      "workflow": "workflows/assets/skill_magician_trajectory.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive_g": "gmic_(3dicon), curved bullet flight arc with magic wand tip, purple magic flip sparkle, bullet trail reversing direction, game skill icon, single symbol, centered, fills canvas, western dark fantasy game art",
+      "positive_l": "gmic_(3dicon), curved bullet flight arc with magic wand tip, purple magic flip sparkle, bullet trail reversing direction, detailed skill ability icon, high quality, no humans",
+      "positive": "gmic_(3dicon), curved bullet flight arc with magic wand tip, purple magic flip sparkle, bullet trail reversing direction, game skill icon, single symbol, centered, fills canvas, western dark fantasy game art gmic_(3dicon), curved bullet flight arc with magic wand tip, purple magic flip sparkle, bullet trail reversing direction, detailed skill ability icon, high quality, no humans",
+      "negative": "lowres, text, error, watermark, signature, blurry, worst quality, low quality, jpeg artifacts, human, face, character, person, abstract symbol, unrecognizable object, curtain, wallpaper, architecture, ui background, tiny object, zoomed out, lots of empty space, white background, anime, manga, photorealistic photo, multiple objects, wrong item, cluttered scene, item name text, letters, numbers, icon grid, sprite sheet, multiple icons, collage",
+      "remove_bg_mode": "remove"
+    },
+    {
+      "id": "hp_heart_full",
+      "filename": "hp_heart_full.png",
+      "category": "ui_status",
+      "width": 128,
+      "height": 128,
+      "subject": "当前生命 · 实心红心 + 金边",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, classic plump heart shape symbol, filled solid heart icon, bright crimson red fill, thin gold metallic rim highlight, subtle warm life glow, clear readable heart ui symbol, small game status badge icon, centered, single symbol centered, game ui icon, bold readable silhouette",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, human, face, character, person, full scene, landscape, filled panel, inner illustration",
+      "positive_g": "",
+      "positive_l": "",
+      "workflow": "workflows/assets/hp_heart_full.json",
+      "enabled": true,
+      "gen_scale": 1.0,
+      "seed": "",
+      "remove_bg_mode": "keep"
+    },
+    {
+      "id": "hp_heart_empty",
+      "filename": "hp_heart_empty.png",
+      "category": "ui_status",
+      "width": 128,
+      "height": 128,
+      "subject": "已失去生命槽 · 空心灰心",
+      "workflow": "workflows/assets/hp_heart_empty.json",
+      "enabled": true,
+      "gen_scale": 1.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, simple heart outline shape, hollow empty center, thin stroke only, dark gray silver edge, dim inactive look, no inner fill, clear readable heart ui symbol, small game status badge icon, centered, single symbol centered, game ui icon, bold readable silhouette",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, human, face, character, person, full scene, landscape, filled panel, inner illustration",
+      "remove_bg_mode": "keep"
+    },
+    {
+      "id": "hp_heart_dead",
+      "filename": "hp_heart_dead.png",
+      "category": "ui_status",
+      "width": 128,
+      "height": 128,
+      "subject": "淘汰玩家 · 碎裂灰心",
+      "workflow": "workflows/assets/hp_heart_dead.json",
+      "enabled": true,
+      "gen_scale": 1.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, heart shape with crack lines and broken chipped pieces, faded ash gray tone, fractured edges, dead lifeless matte surface, clear readable heart ui symbol, small game status badge icon, centered, single symbol centered, game ui icon, bold readable silhouette",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, human, face, character, person, full scene, landscape, filled panel, inner illustration",
+      "remove_bg_mode": "keep"
+    },
+    {
+      "id": "badge_lock",
+      "filename": "badge_lock.png",
+      "category": "ui_status",
+      "width": 128,
+      "height": 128,
+      "subject": "本回合锁枪 · 黄铜挂锁",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, small brass padlock with closed shackle, side view on dark round chip badge, soft purple restriction glow, polished metal lock shine, recognizable everyday object, small game status badge icon, centered, single symbol centered, game ui icon, bold readable silhouette",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, human, face, character, person, full scene, landscape, filled panel, inner illustration",
+      "positive_g": "",
+      "positive_l": "",
+      "workflow": "workflows/assets/badge_lock.json",
+      "enabled": true,
+      "gen_scale": 1.0,
+      "seed": "",
+      "remove_bg_mode": "keep"
+    },
+    {
+      "id": "badge_skull",
+      "filename": "badge_skull.png",
+      "category": "ui_status",
+      "width": 128,
+      "height": 128,
+      "subject": "玩家淘汰 · 白色骷髅头",
+      "workflow": "workflows/assets/badge_skull.json",
+      "enabled": true,
+      "gen_scale": 1.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, small white human skull front view on dark circular badge medal, faint red death mist, cracked dark rim, eliminated player mark, recognizable everyday object, small game status badge icon, centered, single symbol centered, game ui icon, bold readable silhouette",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, human, face, character, person, full scene, landscape, filled panel, inner illustration",
+      "remove_bg_mode": "keep"
+    },
+    {
+      "id": "badge_traitor",
+      "filename": "badge_traitor.png",
+      "category": "ui_status",
+      "width": 128,
+      "height": 128,
+      "subject": "背叛者身份 · 兜帽剪影",
+      "workflow": "workflows/assets/badge_traitor.json",
+      "enabled": true,
+      "gen_scale": 1.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, small hooded cloak silhouette head, smooth blank face under hood on dark gold medal, purple ominous shadow glow, secret traitor trim, hidden identity mark, recognizable everyday object, small game status badge icon, centered, single symbol centered, game ui icon, bold readable silhouette",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, human, face, character, person, full scene, landscape, filled panel, inner illustration",
+      "remove_bg_mode": "keep"
+    },
+    {
+      "id": "card_frame",
+      "filename": "card_frame.png",
+      "category": "ui_frames",
+      "width": 128,
+      "height": 128,
+      "subject": "玩家金框 · 九宫格卡框",
+      "workflow": "workflows/assets/card_frame.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, ornate gold purple rectangular portrait card border frame, baroque demon casino style, thick decorative corners, game UI nine-slice border frame, hollow transparent center, empty middle, dark fantasy demon roulette, symmetrical, single ui asset, clean alpha edges",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, human, face, character, person, full scene, landscape, filled panel, inner illustration, solid center fill, portrait photo, character inside frame",
+      "remove_bg_mode": "keep"
+    },
+    {
+      "id": "card_frame_silver",
+      "filename": "card_frame_silver.png",
+      "category": "ui_frames",
+      "width": 128,
+      "height": 128,
+      "subject": "玩家银框 · 九宫格卡框",
+      "workflow": "workflows/assets/card_frame_silver.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, ornate silver gray rectangular portrait card border frame, cool metallic trim, same layout as gold frame, game UI nine-slice border frame, hollow transparent center, empty middle, dark fantasy demon roulette, symmetrical, single ui asset, clean alpha edges",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, human, face, character, person, full scene, landscape, filled panel, inner illustration, solid center fill, portrait photo, character inside frame",
+      "remove_bg_mode": "keep"
+    },
+    {
+      "id": "btn_primary",
+      "filename": "btn_primary.png",
+      "category": "ui_buttons",
+      "width": 128,
+      "height": 128,
+      "subject": "主按钮 · 紫金底框",
+      "workflow": "workflows/assets/btn_primary.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, rounded rectangle game UI button frame, rich purple fill with gold ornate border, primary action style, game UI nine-slice border frame, hollow transparent center, empty middle, dark fantasy demon roulette, symmetrical, single ui asset, clean alpha edges",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, human, face, character, person, full scene, landscape, filled panel, inner illustration, solid center fill, portrait photo, character inside frame",
+      "remove_bg_mode": "keep"
+    },
+    {
+      "id": "btn_secondary",
+      "filename": "btn_secondary.png",
+      "category": "ui_buttons",
+      "width": 128,
+      "height": 128,
+      "subject": "次按钮 · 暗灰底框",
+      "workflow": "workflows/assets/btn_secondary.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, rounded rectangle game UI button frame, dark charcoal gray with subtle silver border, secondary action style, game UI nine-slice border frame, hollow transparent center, empty middle, dark fantasy demon roulette, symmetrical, single ui asset, clean alpha edges",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, human, face, character, person, full scene, landscape, filled panel, inner illustration, solid center fill, portrait photo, character inside frame",
+      "remove_bg_mode": "keep"
+    },
+    {
+      "id": "btn_danger",
+      "filename": "btn_danger.png",
+      "category": "ui_buttons",
+      "width": 128,
+      "height": 128,
+      "subject": "危险按钮 · 暗红底框",
+      "workflow": "workflows/assets/btn_danger.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, rounded rectangle game UI button frame, deep crimson red with black gold trim, danger shoot action style, game UI nine-slice border frame, hollow transparent center, empty middle, dark fantasy demon roulette, symmetrical, single ui asset, clean alpha edges",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, human, face, character, person, full scene, landscape, filled panel, inner illustration, solid center fill, portrait photo, character inside frame",
+      "remove_bg_mode": "keep"
+    },
+    {
+      "id": "revolver",
+      "filename": "revolver.png",
+      "category": "ui_combat",
+      "width": 256,
+      "height": 256,
+      "subject": "左轮手枪 · 侧视",
+      "workflow": "workflows/assets/revolver.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, classic revolver handgun side profile pointing right, dark steel metal body, wooden grip, subtle muzzle highlight, polished metal gleam, game prop icon, centered, game combat prop icon, single symbol centered, game ui icon, bold readable silhouette",
+      "negative": "lowres, text, error, watermark, signature, blurry, worst quality, low quality, human, face, hands holding gun, multiple guns, scene, background room",
+      "remove_bg_mode": "keep"
+    },
+    {
+      "id": "bullet",
+      "filename": "bullet.png",
+      "category": "ui_combat",
+      "width": 256,
+      "height": 256,
+      "subject": "子弹 · 侧视",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, brass bullet cartridge side view, copper gold casing, pointed tip facing right, metallic shine, small motion streak optional, centered, game combat prop icon, single symbol centered, game ui icon, bold readable silhouette",
+      "negative": "lowres, text, error, watermark, signature, blurry, worst quality, low quality, human, face, hands holding gun, multiple guns, scene, background room",
+      "positive_g": "",
+      "positive_l": "",
+      "workflow": "workflows/assets/bullet.json",
+      "enabled": true,
+      "gen_scale": 2.0,
+      "seed": "",
+      "remove_bg_mode": "keep"
+    },
+    {
+      "id": "startup_poster",
+      "filename": "startup_poster.png",
+      "category": "backgrounds",
+      "width": 512,
+      "height": 896,
+      "subject": "启动海报 · 竖屏暗黑赌场",
+      "workflow": "workflows/assets/startup_poster.json",
+      "enabled": true,
+      "gen_scale": 1.0,
+      "seed": "",
+      "positive": "masterpiece, best quality, very aesthetic, absurdres, no humans, vertical mobile game splash poster, demon roulette casino theme, dark purple and gold atmosphere, revolver and roulette wheel motifs, dramatic lighting, ornate gothic frame edges, title safe center area, single symbol centered, game ui icon, bold readable silhouette",
+      "negative": "lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, human, face, character, person, full scene, landscape, filled panel, inner illustration",
+      "remove_bg_mode": "keep"
+    }
+  ]
+}

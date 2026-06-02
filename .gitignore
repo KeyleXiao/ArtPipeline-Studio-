@@ -1,0 +1,28 @@
+# 构建与本地环境
+artApp/release/
+artApp/.build-venv/
+**/__pycache__/
+**/*.pyc
+.DS_Store
+.sync_staging/
+.sync_backup_meta/
+
+# 敏感配置（复制 pipeline_config.example.json 为 pipeline_config.json 后本地填写）
+tools/pipeline_config.json
+
+# 美术资源（体积大，本地生成）
+source/**/*.png
+source/**/*.webp
+source/**/*.jpg
+source/**/*.jpeg
+inbox/**/*.png
+inbox/**/*.webp
+inbox/**/*.jpg
+inbox/**/*.jpeg
+
+# 个人资源工作流副本
+tools/workflows/assets/*
+!tools/workflows/assets/.gitkeep
+
+.env
+.env.*

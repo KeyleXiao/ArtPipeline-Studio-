@@ -1,2 +1,249 @@
-# ArtPipeline-Studio-
-ArtPipeline Studio · 美术流水线 · 游戏· 美术
+# KEYLE· ArtPipeline Studio
+
+**ComfyUI 驱动的游戏美术流水线** — 从 AI 出图到 Unity 资源，一条链路搞定。
+
+[![License](https://img.shields.io/github/license/KeyleXiao/ArtPipeline-Studio-)](LICENSE)
+
+> 产品主页：[art.vrast.cn](https://art.vrast.cn) · 使用文档：[art.vrast.cn/docs.html](https://art.vrast.cn/docs.html)
+
+<p align="center">
+  <img src="docs/images/main-workbench.png" alt="主工作台：分类、资源列表、预览与 AI 助手" width="920" />
+</p>
+
+<p align="center"><sub>主工作台 — 分类 · 资源 · S·in·U 状态 · AI 助手 · 多源预览</sub></p>
+
+---
+
+## 简介
+
+ArtPipeline Studio 面向 **UI 图标 / 角色头像 / 道具** 等 2D 美术资源的批量生产，串联：
+
+```
+ComfyUI 生成 → source 原图 → inbox 后处理 → 游戏引擎目录
+```
+
+- **Web 版**：FastAPI + 静态前端，浏览器调试方便  
+- **桌面版**：macOS `.app` / Windows `.exe` 独立运行（PyInstaller）  
+- **AI 助手**：DeepSeek 写提示词、优化与工作流建议  
+- **后处理**：PS 式图层栈，仅改 inbox，source 只读  
+
+---
+
+## 功能一览
+
+| 能力 | 说明 |
+|------|------|
+| 分类与资源库 | 多分类、搜索、新建 / 重命名 / 删除；**S·in·U** 三态路径追踪 |
+| ComfyUI 批量 | 生成选中 / 本类 / 生成并导出；浮动进度，可停止 |
+| img2img 重绘 | 基于 inbox 或 source 继续生成，denoise 可调 |
+| 提示词与工作流 | 每资源 subject、正/负向 prompt、独立 workflow JSON |
+| 后处理编辑器 | 图层、裁切、文字、模板；写入 inbox 或导出引擎 |
+| AI 助手 | 自由对话 / 写提示词 / 优化 / 工作流（需 DeepSeek Key） |
+| 跨分类迁移 | 长按资源拖到其他分类，确认后移动三路径 PNG |
+| 中 / EN | 界面双语 |
+
+### S·in·U 状态块
+
+| 块 | 绿 | 黄 | 红 / 灰 |
+|----|----|----|---------|
+| **S** source | 已生成 | — | 尚未生成 |
+| **in** inbox | 与 source 一致 | 已后处理 | 缺失 |
+| **U** 引擎 | 与 inbox 一致 | — | 需重新导出 |
+
+---
+
+## 界面截图
+
+### 主工作台
+
+分类与资源库、AI 助手（默认自由对话）、inbox 预览与 **S·in·U** 三态路径。顶部收纳生成、导出与全局设置。
+
+<p align="center">
+  <img src="docs/images/main-workbench.png" alt="主界面" width="880" />
+</p>
+
+### 提示词与工作流
+
+按资源编辑 subject、正向 / 负向 prompt；道具与技能支持 SDXL **G / L** 分层。工作流 JSON 可校验、保存与载入模板。
+
+<p align="center">
+  <img src="docs/images/prompts-workflow.png" alt="提示词与工作流" width="880" />
+</p>
+
+### img2img 重绘
+
+将 inbox 或 source 图作为参考，调节 denoise 在 ComfyUI 中继续迭代，适合头像与道具微调。
+
+<p align="center">
+  <img src="docs/images/img2img-redraw.png" alt="img2img 重绘" width="880" />
+</p>
+
+### 后处理编辑器
+
+PS 式图层栈：图片 / 文字、裁切、模板；实时合成预览。仅修改 inbox，source 只读；可一键导出 Unity。
+
+<p align="center">
+  <img src="docs/images/postprocess-editor.png" alt="后处理编辑器" width="880" />
+</p>
+
+> 更多动效与说明见 [产品官网](https://art.vrast.cn#showcase)。
+
+---
+
+## 快速开始
+
+### 环境要求
+
+| 组件 | 说明 |
+|------|------|
+| Python 3.10+ | Web / 开发模式 |
+| ComfyUI | 本地或局域网，默认 `http://127.0.0.1:8188` |
+| 游戏项目 | 通常为 Unity；导出路径在「全局设置」配置 |
+
+### 1. 安装依赖
+
+```bash
+git clone git@github.com:KeyleXiao/ArtPipeline-Studio-.git
+cd ArtPipeline-Studio-
+cd artApp
+pip install -r requirements.txt
+```
+
+### 2. 初始化配置
+
+```bash
+cp ../tools/pipeline_config.example.json ../tools/pipeline_config.json
+```
+
+在应用 **「全局设置」** 中填写：
+
+- **ArtPipeline 根目录**（含 `source/`、`inbox/`、`workflows/` 的目录）
+- **游戏项目根目录**
+- **DeepSeek API Key**（使用 AI 助手时）
+
+> `pipeline_config.json` 含个人路径与密钥，**勿提交 Git**（已在 `.gitignore`）。
+
+### 3. 启动 Web 版
+
+```bash
+python run_dev.py
+```
+
+浏览器打开 **http://127.0.0.1:8765**。
+
+### 4. 推荐工作流
+
+1. 配置分类通用 prompt + 各资源 subject  
+2. 确认 ComfyUI 在线 → **生成本类**  
+3. 需精修的资源进入 **后处理**  
+4. **导出本类** 或 **生成并导出** 到 Unity  
+5. 在引擎内验证资源  
+
+更完整的操作说明见 [在线文档](https://art.vrast.cn/docs.html) 或仓库内 `artApp/web/docs/zh-CN.md`。
+
+---
+
+## 仓库结构
+
+```
+ArtPipeline-Studio/
+├── artApp/                 # Web / 桌面壳（FastAPI + 前端）
+│   ├── run_dev.py          # 浏览器开发入口
+│   ├── run_app.py          # 桌面 pywebview 入口
+│   ├── build_release_*.py  # macOS / Windows 打包
+│   ├── sync_to_github.py   # 同步到本仓库（维护者）
+│   └── web/                # 静态 UI、应用内文档
+├── tools/                  # 配置、ComfyUI 客户端、后处理引擎
+│   ├── pipeline_config.example.json
+│   ├── config_manager.py
+│   └── workflows/          # 工作流模板与每资源 JSON
+├── docs/                   # 规范与模型说明（animagine-xl 等）
+│   └── images/             # README / 官网用功能截图
+├── comfyui/                # ComfyUI 相关参考
+├── manifest/               # 资源清单
+└── overlays/               # 后处理叠加素材
+```
+
+运行时还会在 **ArtPipeline 工作目录** 下使用（需自行创建或通过工具生成）：
+
+```
+your-art-workspace/
+├── source/                 # ComfyUI 原图（只读）
+├── inbox/                  # 后处理与合成输出
+└── workflows/assets/       # 各资源工作流副本
+```
+
+---
+
+## 桌面独立版
+
+在对应平台打包，产物内嵌 Python，**无需**用户单独安装依赖。
+
+| 平台 | 命令 | 产物 |
+|------|------|------|
+| macOS | `python3 build_release_mac.py` | `artApp/release/ArtPipeline Studio.app` |
+| Windows | `python build_release_win.py` | `artApp/release/ArtPipeline Studio/` |
+
+首次启动配置目录：
+
+- macOS：`~/Library/Application Support/ArtPipeline Studio/`
+- Windows：`%LOCALAPPDATA%\ArtPipeline Studio\`
+
+**在 Mac 上打 Windows 包**：PyInstaller 无法交叉编译，可用 GitHub Actions（`.github/workflows/build-windows.yml`）或在 Windows / 虚拟机中执行 `build_release_win.py`。
+
+---
+
+## 推荐模型
+
+| 用途 | Checkpoint | 说明 |
+|------|------------|------|
+| 角色、道具、UI 图标 | **animagineXL_v3.safetensors** | 二次元卡牌风 |
+
+详见 [docs/animagine-xl.md](docs/animagine-xl.md)。
+
+---
+
+## 文档
+
+| 文档 | 位置 |
+|------|------|
+| 官网与截图 | [art.vrast.cn](https://art.vrast.cn) |
+| 在线使用文档 | [art.vrast.cn/docs.html](https://art.vrast.cn/docs.html) |
+| 应用内 Markdown | [artApp/web/docs/zh-CN.md](artApp/web/docs/zh-CN.md) |
+| artApp 开发说明 | [artApp/README.md](artApp/README.md) |
+| 工具与 CLI | [tools/README.md](tools/README.md) |
+| 目录规范 | [docs/目录说明.md](docs/目录说明.md) |
+
+---
+
+## 旧版 Tk / 命令行
+
+仍可使用 Tk 界面或 CLI（与 Web 共用 `pipeline_config.json`）：
+
+```bash
+python tools/artTool_ui.py
+python tools/cli.py --list
+```
+
+Web 版已覆盖主流程；Tk 可作为边缘功能回退。
+
+---
+
+## 参与与同步（维护者）
+
+从本地完整工程同步到本仓库（自动脱敏密钥、排除 `release/` 与美术 PNG）：
+
+```bash
+cd /path/to/ArtPipeline/artApp
+python3 sync_to_github.py --dest ~/ArtPipeline-Studio
+```
+
+---
+
+## License
+
+见 [LICENSE](LICENSE)。
+
+---
+
+**KEYLE · ArtPipeline Studio** — 游戏美术 AI 流水线
