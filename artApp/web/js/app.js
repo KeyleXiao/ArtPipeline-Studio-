@@ -47,6 +47,8 @@ const state = {
   aiBusy: false,
 };
 
+let genModeHydrating = false;
+
 const previewView = {
   zoom: 1,
   panX: 0,
@@ -427,9 +429,11 @@ async function loadPromptTab() {
   }
   let genMode = data.gen_mode || "txt2img";
   if (genMode === "img2img" && data.ref_image_use_source) genMode = "redraw";
+  genModeHydrating = true;
   $$('input[name="gen_mode"]').forEach((r) => {
     r.checked = r.value === genMode;
   });
+  genModeHydrating = false;
   $("#ref-image-path").value = data.ref_image || "";
   const denoise = data.img2img_denoise ?? 0.65;
   $("#img2img-denoise").value = denoise;
@@ -466,9 +470,11 @@ function genModePayloadFromForm() {
 
 function applyGenModeToPromptPanel(mode) {
   const normalized = mode === "redraw" ? "redraw" : mode === "img2img" ? "img2img" : "txt2img";
+  genModeHydrating = true;
   $$('input[name="gen_mode"]').forEach((r) => {
     r.checked = r.value === normalized;
   });
+  genModeHydrating = false;
   updateGenModeUi();
 }
 
@@ -499,10 +505,36 @@ function updateImportHintText() {
 
 function onGenModePanelChange() {
   updateGenModeUi();
+  void saveGenModeOnly();
   const dlg = $("#dlg-new-asset");
   if (dlg?.open && newAssetDlgTab === "import") {
     const mode = currentGenMode();
     setImportGenMode(mode === "redraw" ? "redraw" : "txt2img", { syncPrompt: false });
+  }
+}
+
+async function saveGenModeOnly() {
+  if (!state.assetId || genModeHydrating) return;
+  const payload = genModePayloadFromForm();
+  const prev = state.assetFull;
+  if (prev) {
+    let prevMode = prev.gen_mode || "txt2img";
+    if (prevMode === "img2img" && prev.ref_image_use_source) prevMode = "redraw";
+    const prevDenoise = prev.img2img_denoise ?? 0.65;
+    const prevRef = (prev.ref_image || "").trim();
+    if (
+      payload.gen_mode === prevMode &&
+      payload.ref_image === prevRef &&
+      payload.img2img_denoise === prevDenoise
+    ) {
+      return;
+    }
+  }
+  try {
+    state.assetFull = await API.put(`/api/assets/${state.assetId}`, payload);
+    updateGenModeUi();
+  } catch (err) {
+    toast(err.message);
   }
 }
 
@@ -577,11 +609,14 @@ async function pickRefImage(btn) {
   await withBtnBusy(btn || document.querySelector('[data-action="pick-ref-image"]'), async () => {
     const path = await pickRefImageFile();
     if (!path) return;
+    genModeHydrating = true;
     $$('input[name="gen_mode"]').forEach((r) => {
       if (r.value === "img2img") r.checked = true;
     });
-    updateGenModeUi();
     $("#ref-image-path").value = path;
+    genModeHydrating = false;
+    updateGenModeUi();
+    await saveGenModeOnly();
   }).catch((err) => {
     if (err) toast(err.message);
   });
@@ -708,14 +743,14 @@ async function refreshAiMessages() {
 
 async function openAiPanel() {
   updateAiModeUi();
-  await clearAiChat(state.aiMode);
+  await refreshAiMessages();
 }
 
 async function switchAiMode(mode) {
   if (!AI_MODE_KEYS.includes(mode) || state.aiMode === mode) return;
   state.aiMode = mode;
   updateAiModeUi();
-  await clearAiChat(mode);
+  await refreshAiMessages();
 }
 
 function switchTab(tabId) {
@@ -2187,6 +2222,8 @@ async function sendAi() {
     await refreshAiMessages();
     if (data.applied?.length) {
       await refreshUiAfterAi(data.applied);
+    } else if (data.saved === false) {
+      toast(t("toast.aiReplyOnly"));
     }
   } catch (err) {
     toast(err.message);
@@ -3343,7 +3380,7 @@ function bindUi() {
   });
 
   $("#ai-input")?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendAi();
     }

@@ -265,6 +265,20 @@ function defaultTextStyle() {
   };
 }
 
+function defaultTransform() {
+  return {
+    offset_x: 0,
+    offset_y: 0,
+    scale: 1,
+    anchor: "center",
+    rotation_deg: 0,
+    flip_h: false,
+    flip_v: false,
+    pivot_x: 0.5,
+    pivot_y: 0.5,
+  };
+}
+
 function ensureFontOption(family) {
   const sel = $("#pp-fonts");
   if (!sel || !family) return;
@@ -318,7 +332,7 @@ function applyPropsFromForm() {
     const o = parseFloat(form.opacity.value);
     layer.opacity = Number.isFinite(o) ? Math.min(1, Math.max(0, o)) : 1;
   }
-  layer.transform = layer.transform || { anchor: "center" };
+  layer.transform = layer.transform || defaultTransform();
   layer.transform.offset_x = parseFloat(form.offset_x.value) || 0;
   layer.transform.offset_y = parseFloat(form.offset_y.value) || 0;
   if (form.scale_slider) {
@@ -330,6 +344,19 @@ function applyPropsFromForm() {
   } else {
     layer.transform.scale = (parseFloat(form.scale_pct.value) || 100) / 100;
   }
+  if (form.rotation_slider) {
+    const rot = parseInt(form.rotation_slider.value, 10) || 0;
+    layer.transform.rotation_deg = rot;
+    form.rotation.value = rot;
+    const rotTag = $("#rotation-tag");
+    if (rotTag) rotTag.textContent = `${rot}°`;
+  } else {
+    layer.transform.rotation_deg = parseFloat(form.rotation?.value) || 0;
+  }
+  const pxPct = parseFloat(form.pivot_x_pct?.value);
+  const pyPct = parseFloat(form.pivot_y_pct?.value);
+  if (Number.isFinite(pxPct)) layer.transform.pivot_x = Math.min(1, Math.max(0, pxPct / 100));
+  if (Number.isFinite(pyPct)) layer.transform.pivot_y = Math.min(1, Math.max(0, pyPct / 100));
   if (layer.type === "image") {
     layer.source = form.source?.value?.trim() ?? layer.source;
     if (layer.is_subject) layer.source = "$asset";
@@ -378,6 +405,17 @@ function fillProps() {
   if (form.scale_slider) form.scale_slider.value = Math.min(300, Math.max(5, scalePct));
   const tag = $("#scale-tag");
   if (tag) tag.textContent = `${scalePct}%`;
+  const rot = Math.round(xf.rotation_deg ?? 0);
+  if (form.rotation) form.rotation.value = rot;
+  if (form.rotation_slider) form.rotation_slider.value = Math.min(180, Math.max(-180, rot));
+  const rotTag = $("#rotation-tag");
+  if (rotTag) rotTag.textContent = `${rot}°`;
+  const pxPct = Math.round((xf.pivot_x ?? 0.5) * 100);
+  const pyPct = Math.round((xf.pivot_y ?? 0.5) * 100);
+  if (form.pivot_x_pct) form.pivot_x_pct.value = pxPct;
+  if (form.pivot_y_pct) form.pivot_y_pct.value = pyPct;
+  syncFlipButtons(xf);
+  syncPivotGrid(pxPct, pyPct);
 
   const isImg = layer.type === "image";
   const isText = layer.type === "text";
@@ -413,6 +451,46 @@ function fillProps() {
   const matteWand = $("#pp-matte-wand");
   if (matteBorder) matteBorder.disabled = !isImg || !!layer.locked;
   if (matteWand) matteWand.disabled = !isImg || !!layer.locked;
+}
+
+function syncFlipButtons(xf = selectedLayer()?.transform || {}) {
+  $("#pp-flip-h")?.classList.toggle("active", !!xf.flip_h);
+  $("#pp-flip-v")?.classList.toggle("active", !!xf.flip_v);
+}
+
+function syncPivotGrid(pxPct = 50, pyPct = 50) {
+  const grid = $("#pp-pivot-grid");
+  if (!grid) return;
+  const tol = 8;
+  grid.querySelectorAll(".pp-pivot-cell").forEach((btn) => {
+    const [x, y] = (btn.dataset.pivot || "0.5,0.5").split(",").map(parseFloat);
+    const match = Math.abs(x * 100 - pxPct) <= tol && Math.abs(y * 100 - pyPct) <= tol;
+    btn.classList.toggle("active", match);
+  });
+}
+
+function pointInPolygon(px, py, corners) {
+  if (!corners?.length) return false;
+  let inside = false;
+  for (let i = 0, j = corners.length - 1; i < corners.length; j = i++) {
+    const [xi, yi] = corners[i];
+    const [xj, yj] = corners[j];
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi + 1e-9) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function unrotateDocPoint(docX, docY, pivot, deg) {
+  if (!pivot || !deg) return { x: docX, y: docY };
+  const rad = (deg * Math.PI) / 180;
+  const dx = docX - pivot.x;
+  const dy = docY - pivot.y;
+  return {
+    x: pivot.x + dx * Math.cos(rad) - dy * Math.sin(rad),
+    y: pivot.y + dx * Math.sin(rad) + dy * Math.cos(rad),
+  };
 }
 
 function layerActionBar(layer) {
@@ -536,6 +614,73 @@ function bindRangeSync() {
     const pct = Number.isFinite(o) ? Math.round(Math.min(1, Math.max(0, o)) * 100) : 100;
     if (form.opacity_slider) form.opacity_slider.value = pct;
     schedulePreview(120);
+  });
+  form.rotation_slider?.addEventListener("input", () => {
+    form.rotation.value = form.rotation_slider.value;
+    const rotTag = $("#rotation-tag");
+    if (rotTag) rotTag.textContent = `${form.rotation_slider.value}°`;
+    schedulePreview(120);
+  });
+  form.rotation?.addEventListener("input", () => {
+    let v = parseInt(form.rotation.value, 10) || 0;
+    v = Math.min(180, Math.max(-180, v));
+    form.rotation.value = v;
+    if (form.rotation_slider) form.rotation_slider.value = v;
+    const rotTag = $("#rotation-tag");
+    if (rotTag) rotTag.textContent = `${v}°`;
+    schedulePreview(120);
+  });
+  form.pivot_x_pct?.addEventListener("input", () => {
+    syncPivotGrid(parseFloat(form.pivot_x_pct.value) || 0, parseFloat(form.pivot_y_pct?.value) || 50);
+    schedulePreview(120);
+  });
+  form.pivot_y_pct?.addEventListener("input", () => {
+    syncPivotGrid(parseFloat(form.pivot_x_pct?.value) || 50, parseFloat(form.pivot_y_pct.value) || 0);
+    schedulePreview(120);
+  });
+}
+
+function bindTransformControls() {
+  $("#pp-flip-h")?.addEventListener("click", async () => {
+    const layer = selectedLayer();
+    if (!layer) return;
+    await pushHistoryBefore({ includeImages: false });
+    layer.transform = layer.transform || defaultTransform();
+    layer.transform.flip_h = !layer.transform.flip_h;
+    syncFlipButtons(layer.transform);
+    fillProps();
+    schedulePreview();
+  });
+  $("#pp-flip-v")?.addEventListener("click", async () => {
+    const layer = selectedLayer();
+    if (!layer) return;
+    await pushHistoryBefore({ includeImages: false });
+    layer.transform = layer.transform || defaultTransform();
+    layer.transform.flip_v = !layer.transform.flip_v;
+    syncFlipButtons(layer.transform);
+    fillProps();
+    schedulePreview();
+  });
+  $("#pp-rotation-reset")?.addEventListener("click", async () => {
+    const layer = selectedLayer();
+    if (!layer?.transform) return;
+    await pushHistoryBefore({ includeImages: false });
+    layer.transform.rotation_deg = 0;
+    fillProps();
+    schedulePreview();
+  });
+  $("#pp-pivot-grid")?.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".pp-pivot-cell");
+    if (!btn) return;
+    const layer = selectedLayer();
+    if (!layer) return;
+    const [x, y] = (btn.dataset.pivot || "0.5,0.5").split(",").map(parseFloat);
+    await pushHistoryBefore({ includeImages: false });
+    layer.transform = layer.transform || defaultTransform();
+    layer.transform.pivot_x = x;
+    layer.transform.pivot_y = y;
+    fillProps();
+    schedulePreview();
   });
 }
 
@@ -822,14 +967,46 @@ function drawOverlay() {
   const z = view.zoom;
   for (const b of boundsData.layers || []) {
     if (soloId && b.id !== soloId) continue;
-    const x0 = ox + b.x * z;
-    const y0 = oy + b.y * z;
-    const x1 = ox + (b.x + b.w) * z;
-    const y1 = oy + (b.y + b.h) * z;
-    ctx.strokeStyle = b.id === selectedId ? "#00aaff" : "#666";
-    ctx.setLineDash([4, 3]);
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    const selected = b.id === selectedId;
+    ctx.strokeStyle = selected ? "#38bdf8" : "#666";
+    ctx.fillStyle = selected ? "rgba(56, 189, 248, 0.08)" : "rgba(255,255,255,0.02)";
+    ctx.setLineDash(selected ? [] : [4, 3]);
+    ctx.lineWidth = selected ? 2 : 1.5;
+    if (b.corners?.length === 4) {
+      ctx.beginPath();
+      b.corners.forEach(([x, y], i) => {
+        const sx = ox + x * z;
+        const sy = oy + y * z;
+        if (i === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      });
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      const x0 = ox + b.x * z;
+      const y0 = oy + b.y * z;
+      const x1 = ox + (b.x + b.w) * z;
+      const y1 = oy + (b.y + b.h) * z;
+      ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    }
+    if (selected && b.pivot) {
+      const px = ox + b.pivot.x * z;
+      const py = oy + b.pivot.y * z;
+      ctx.setLineDash([]);
+      ctx.strokeStyle = "#fbbf24";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px - 7, py);
+      ctx.lineTo(px + 7, py);
+      ctx.moveTo(px, py - 7);
+      ctx.lineTo(px, py + 7);
+      ctx.stroke();
+      ctx.fillStyle = "#fbbf24";
+      ctx.beginPath();
+      ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   ctx.setLineDash([]);
 }
@@ -838,6 +1015,12 @@ function hitTestLayer(docX, docY) {
   const layers = [...(boundsData.layers || [])].reverse();
   for (const b of layers) {
     if (!b.visible || b.locked) continue;
+    if (b.corners?.length === 4) {
+      if (pointInPolygon(docX, docY, b.corners)) {
+        return stack.layers.find((l) => l.id === b.id);
+      }
+      continue;
+    }
     if (docX >= b.x && docX < b.x + b.w && docY >= b.y && docY < b.y + b.h) {
       return stack.layers.find((l) => l.id === b.id);
     }
@@ -892,9 +1075,33 @@ function docToRawPixel(layer, docX, docY) {
   const b = (boundsData.layers || []).find((x) => x.id === layer.id);
   const raw = boundsData.raw_sizes?.[layer.id];
   if (!b || !raw?.w || !raw?.h) return null;
-  if (docX < b.x || docX >= b.x + b.w || docY < b.y || docY >= b.y + b.h) return null;
-  const relX = (docX - b.x) / b.w;
-  const relY = (docY - b.y) / b.h;
+  const xf = layer.transform || {};
+  const angle = xf.rotation_deg || 0;
+  let sampleX = docX;
+  let sampleY = docY;
+  if (b.corners?.length === 4 && b.pivot && Math.abs(angle) > 0.01) {
+    if (!pointInPolygon(docX, docY, b.corners)) return null;
+    const flat = unrotateDocPoint(docX, docY, b.pivot, angle);
+    sampleX = flat.x;
+    sampleY = flat.y;
+  } else if (docX < b.x || docX >= b.x + b.w || docY < b.y || docY >= b.y + b.h) {
+    return null;
+  }
+  const localW = b.local_w || b.w;
+  const localH = b.local_h || b.h;
+  const pivotNorm = b.pivot_norm || { x: xf.pivot_x ?? 0.5, y: xf.pivot_y ?? 0.5 };
+  let topLeftX;
+  let topLeftY;
+  if (b.pivot && localW && localH) {
+    topLeftX = b.pivot.x - pivotNorm.x * localW;
+    topLeftY = b.pivot.y - pivotNorm.y * localH;
+  } else {
+    topLeftX = b.x;
+    topLeftY = b.y;
+  }
+  const relX = (sampleX - topLeftX) / localW;
+  const relY = (sampleY - topLeftY) / localH;
+  if (relX < 0 || relX > 1 || relY < 0 || relY > 1) return null;
   const crop = layer.crop;
   let rawX;
   let rawY;
@@ -909,6 +1116,22 @@ function docToRawPixel(layer, docX, docY) {
     x: Math.max(0, Math.min(raw.w - 1, Math.round(rawX))),
     y: Math.max(0, Math.min(raw.h - 1, Math.round(rawY))),
   };
+}
+
+async function confirmLayerSourceEdit(layer) {
+  if (!layer || layer.type !== "image") return true;
+  applyPropsFromForm();
+  try {
+    const info = await API.post(
+      `/api/assets/${encodeURIComponent(assetId)}/postprocess/layer-write-info`,
+      { layer_id: layer.id, stack },
+    );
+    if (!info.touches_source) return true;
+    const name = (info.path || "").split("/").pop() || layer.name;
+    return confirm(t("pp.confirmEditSource", { name }));
+  } catch {
+    return true;
+  }
 }
 
 async function callLayerMatte(payload) {
@@ -926,6 +1149,7 @@ async function applyBorderMatte(btn) {
     return;
   }
   if (layer.locked) return;
+  if (!(await confirmLayerSourceEdit(layer))) return;
   const settings = readMatteSettings();
   await withBtnBusy(btn || $("#pp-matte-border"), async () => {
     await pushHistoryBefore({ includeImages: true });
@@ -1054,9 +1278,12 @@ function enterMatteMode() {
     setStatus(t("pp.matteNeedImage"));
     return;
   }
-  matteMode = true;
-  updateMatteModeUi();
-  setStatus(t("pp.matteModeHint"));
+  void (async () => {
+    if (!(await confirmLayerSourceEdit(layer))) return;
+    matteMode = true;
+    updateMatteModeUi();
+    setStatus(t("pp.matteModeHint"));
+  })();
 }
 
 function exitMatteMode() {
@@ -1438,7 +1665,7 @@ async function addTextLayer() {
     type: "text",
     visible: true,
     opacity: 1,
-    transform: { offset_x: 0, offset_y: 0, scale: 1, anchor: "center" },
+    transform: defaultTransform(),
     text: textStyle,
   });
   selectLayer(id);
@@ -1456,7 +1683,7 @@ function addImageLayer() {
       visible: true,
       opacity: 1,
       source: path,
-      transform: { offset_x: 0, offset_y: 0, scale: 1, anchor: "center" },
+      transform: defaultTransform(),
     });
     selectLayer(id);
   });
@@ -1543,6 +1770,8 @@ async function applyInbox(btn) {
     applyPropsFromForm();
     await API.put(`/api/assets/${assetId}/postprocess`, { stack });
     const r = await API.post(`/api/assets/${assetId}/postprocess/apply`, { stack });
+    await fetchBounds();
+    await refreshPreview();
     setStatus(t("pp.writtenInbox", { file: r.path?.split("/").pop() || "inbox" }));
   }).catch((err) => {
     if (err) setStatus(err.message);
@@ -1605,11 +1834,16 @@ async function resetTransform(full = false, partial = {}) {
   const l = selectedLayer();
   if (!l) return;
   await pushHistoryBefore({ includeImages: false });
-  l.transform = l.transform || { anchor: "center" };
+  l.transform = l.transform || defaultTransform();
   if (full) {
     l.transform.offset_x = 0;
     l.transform.offset_y = 0;
     l.transform.scale = 1;
+    l.transform.rotation_deg = 0;
+    l.transform.flip_h = false;
+    l.transform.flip_v = false;
+    l.transform.pivot_x = 0.5;
+    l.transform.pivot_y = 0.5;
     l.opacity = 1;
   } else if (partial.xy) {
     l.transform.offset_x = 0;
@@ -1624,6 +1858,11 @@ async function resetTransform(full = false, partial = {}) {
     l.transform.offset_x = 0;
     l.transform.offset_y = 0;
     l.transform.scale = 1;
+    l.transform.rotation_deg = 0;
+    l.transform.flip_h = false;
+    l.transform.flip_v = false;
+    l.transform.pivot_x = 0.5;
+    l.transform.pivot_y = 0.5;
   }
   fillProps();
   schedulePreview();
@@ -1963,6 +2202,7 @@ async function bootstrap() {
   bindViewport();
   bindKeys();
   bindRangeSync();
+  bindTransformControls();
   bindMatteControls();
   bindHistoryControls();
   resetHistory();

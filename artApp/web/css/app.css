@@ -3154,6 +3154,155 @@ dialog menu {
   font-size: 0.72rem;
 }
 
+.pp-xform-block {
+  padding: 12px 12px 10px;
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(99, 102, 241, 0.08), rgba(15, 23, 42, 0.35));
+  border: 1px solid rgba(99, 102, 241, 0.22);
+}
+
+.pp-xform-block legend {
+  padding: 0 6px;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.pp-flip-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.pp-tool-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 58px;
+  padding: 8px 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  font-size: 0.72rem;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.12s, box-shadow 0.15s;
+}
+
+.pp-tool-btn:hover {
+  border-color: rgba(99, 102, 241, 0.45);
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.pp-tool-btn.active {
+  border-color: rgba(56, 189, 248, 0.65);
+  background: rgba(56, 189, 248, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.25);
+}
+
+.pp-tool-btn.ghost {
+  opacity: 0.88;
+}
+
+.pp-tool-btn:active {
+  transform: scale(0.97);
+}
+
+.pp-tool-icon {
+  font-size: 1.15rem;
+  line-height: 1;
+  opacity: 0.92;
+}
+
+.pp-pivot-panel {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.pp-pivot-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+}
+
+.pp-pivot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  max-width: 132px;
+  margin-bottom: 10px;
+}
+
+.pp-pivot-cell {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.pp-pivot-cell::after {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  transition: transform 0.15s, background 0.15s;
+}
+
+.pp-pivot-cell:hover {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.pp-pivot-cell.active {
+  border-color: rgba(56, 189, 248, 0.7);
+  background: rgba(56, 189, 248, 0.16);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25);
+}
+
+.pp-pivot-cell.active::after {
+  background: #38bdf8;
+  transform: scale(1.35);
+}
+
+.pp-pivot-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.pp-pivot-inputs label {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+}
+
+.pp-pivot-inputs input {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.pp-unit {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
 @media (max-width: 900px) {
   .pp-app {
     grid-template-columns: 1fr;

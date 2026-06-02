@@ -137,6 +137,54 @@
             <span class="range-tag" id="scale-tag">100%</span>
           </div>
         </label>
+
+        <fieldset class="span2 field-block pp-xform-block">
+          <legend data-i18n="pp.transform">变换</legend>
+          <div class="pp-flip-row">
+            <button type="button" class="pp-tool-btn" id="pp-flip-h" data-i18n-title="pp.flipHTitle" title="水平镜像">
+              <span class="pp-tool-icon" aria-hidden="true">↔</span>
+              <span data-i18n="pp.flipH">水平镜像</span>
+            </button>
+            <button type="button" class="pp-tool-btn" id="pp-flip-v" data-i18n-title="pp.flipVTitle" title="垂直镜像">
+              <span class="pp-tool-icon" aria-hidden="true">↕</span>
+              <span data-i18n="pp.flipV">垂直镜像</span>
+            </button>
+            <button type="button" class="pp-tool-btn ghost" id="pp-rotation-reset" data-i18n-title="pp.rotationResetTitle" title="重置旋转">
+              <span class="pp-tool-icon" aria-hidden="true">⟲</span>
+              <span data-i18n="pp.rotationReset">归零</span>
+            </button>
+          </div>
+          <label class="span2 pp-range-field">
+            <span data-i18n="pp.rotation">旋转</span>
+            <div class="range-row">
+              <input type="range" name="rotation_slider" min="-180" max="180" step="1" value="0" />
+              <input name="rotation" type="number" min="-180" max="180" step="1" class="range-num" value="0" />
+              <span class="range-tag" id="rotation-tag">0°</span>
+            </div>
+          </label>
+          <div class="pp-pivot-panel">
+            <div class="pp-pivot-head">
+              <span data-i18n="pp.pivot">旋转轴心</span>
+              <span class="muted sm" data-i18n="pp.pivotHint">点击预设或微调百分比</span>
+            </div>
+            <div class="pp-pivot-grid" id="pp-pivot-grid" role="group" aria-label="Pivot presets">
+              <button type="button" class="pp-pivot-cell" data-pivot="0,0" title="↖"></button>
+              <button type="button" class="pp-pivot-cell" data-pivot="0.5,0" title="↑"></button>
+              <button type="button" class="pp-pivot-cell" data-pivot="1,0" title="↗"></button>
+              <button type="button" class="pp-pivot-cell" data-pivot="0,0.5" title="←"></button>
+              <button type="button" class="pp-pivot-cell active" data-pivot="0.5,0.5" title="●"></button>
+              <button type="button" class="pp-pivot-cell" data-pivot="1,0.5" title="→"></button>
+              <button type="button" class="pp-pivot-cell" data-pivot="0,1" title="↙"></button>
+              <button type="button" class="pp-pivot-cell" data-pivot="0.5,1" title="↓"></button>
+              <button type="button" class="pp-pivot-cell" data-pivot="1,1" title="↘"></button>
+            </div>
+            <div class="pp-pivot-inputs">
+              <label><span data-i18n="pp.pivotX">轴心 X</span><input name="pivot_x_pct" type="number" min="0" max="100" step="1" value="50" /><span class="pp-unit">%</span></label>
+              <label><span data-i18n="pp.pivotY">轴心 Y</span><input name="pivot_y_pct" type="number" min="0" max="100" step="1" value="50" /><span class="pp-unit">%</span></label>
+            </div>
+          </div>
+        </fieldset>
+
         <div class="btn-row span2">
           <button type="button" class="btn sm" id="pp-center" data-i18n="pp.center">归位 0,0</button>
           <button type="button" class="btn sm" id="pp-x0" data-i18n="pp.x0">X→0</button>

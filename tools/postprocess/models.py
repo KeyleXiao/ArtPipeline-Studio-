@@ -13,12 +13,21 @@ Anchor = Literal["center", "top_left"]
 ASSET_SUBJECT_SOURCE = "$asset"
 
 
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
 @dataclass
 class LayerTransform:
     offset_x: float = 0.0
     offset_y: float = 0.0
     scale: float = 1.0
     anchor: Anchor = "center"
+    rotation_deg: float = 0.0
+    flip_h: bool = False
+    flip_v: bool = False
+    pivot_x: float = 0.5
+    pivot_y: float = 0.5
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any] | None) -> LayerTransform:
@@ -31,6 +40,11 @@ class LayerTransform:
             offset_y=float(raw.get("offset_y", 0)),
             scale=float(raw.get("scale", 1.0)),
             anchor=anchor,  # type: ignore[arg-type]
+            rotation_deg=float(raw.get("rotation_deg", 0)),
+            flip_h=bool(raw.get("flip_h", False)),
+            flip_v=bool(raw.get("flip_v", False)),
+            pivot_x=_clamp01(raw.get("pivot_x", 0.5)),
+            pivot_y=_clamp01(raw.get("pivot_y", 0.5)),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -39,6 +53,11 @@ class LayerTransform:
             "offset_y": self.offset_y,
             "scale": self.scale,
             "anchor": self.anchor,
+            "rotation_deg": self.rotation_deg,
+            "flip_h": self.flip_h,
+            "flip_v": self.flip_v,
+            "pivot_x": self.pivot_x,
+            "pivot_y": self.pivot_y,
         }
 
 

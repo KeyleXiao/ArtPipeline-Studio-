@@ -1111,6 +1111,28 @@ def _pp_resolver(config: Any, asset: Any, subject: str | None = None) -> Any:
     )
 
 
+def _after_layer_image_write(config: Any, asset: Any, path: Path | None) -> None:
+    """图层 PNG 写入后：若改了本资源 source 原图，同步到 inbox。"""
+    from postprocess.matte import is_asset_source_path, sync_asset_source_to_inbox
+
+    if path is None:
+        return
+    src, inbox, _ = config.resolve_paths(asset)
+    if not is_asset_source_path(path, src if src.is_file() else None):
+        return
+    if sync_asset_source_to_inbox(src, inbox):
+        log_bus.log(f"已同步 source → inbox: {asset.filename}", kind="操作")
+
+
+def _sync_inbox_before_render(config: Any, asset: Any) -> None:
+    """合成/apply 前：source 较新时刷新 inbox，避免主体层仍用旧 inbox。"""
+    from postprocess.matte import sync_inbox_if_source_newer
+
+    src, inbox, _ = config.resolve_paths(asset)
+    if sync_inbox_if_source_newer(src if src.is_file() else None, inbox):
+        log_bus.log(f"apply 前已同步 source → inbox: {asset.filename}", kind="操作")
+
+
 def _resolve_postprocess_stack(
     config: Any,
     asset: Any,
@@ -1172,6 +1194,7 @@ def postprocess_preview(asset_id: str, body: dict[str, Any]) -> Response:
     if not asset:
         raise HTTPException(404, f"资源不存在: {asset_id}")
     _ensure_inbox_for_postprocess(config, asset)
+    _sync_inbox_before_render(config, asset)
     stack = stack_from_dict(body.get("stack"))
     if not stack:
         raise HTTPException(400, "无效 stack")
@@ -1194,7 +1217,7 @@ def postprocess_bounds(asset_id: str, body: dict[str, Any]) -> dict[str, Any]:
     """图层边界（命中测试 / 选框）。"""
     from PIL import Image
 
-    from postprocess.engine import layer_bounds
+    from postprocess.engine import layer_bounds, layer_frame
     from postprocess.models import layer_image_source, stack_from_dict
 
     config = get_config_manager()
@@ -1218,18 +1241,24 @@ def postprocess_bounds(asset_id: str, body: dict[str, Any]) -> dict[str, Any]:
             if raw:
                 raw_sizes[layer.id] = {"w": raw.width, "h": raw.height}
         bounds = layer_bounds(layer, stack, resolver, scratch=scratch)
-        if bounds:
+        frame = layer_frame(layer, stack, resolver, scratch=scratch)
+        if bounds and frame:
             layers_out.append(
                 {
                     "id": layer.id,
-                    "x": bounds.x,
-                    "y": bounds.y,
-                    "w": bounds.w,
-                    "h": bounds.h,
+                    "x": frame["x"],
+                    "y": frame["y"],
+                    "w": frame["w"],
+                    "h": frame["h"],
                     "visible": layer.visible,
                     "locked": layer.locked,
                     "type": layer.type,
                     "is_subject": layer.is_subject,
+                    **({"corners": frame["corners"]} if frame.get("corners") else {}),
+                    **({"pivot": frame["pivot"]} if frame.get("pivot") else {}),
+                    **({"local_w": frame["local_w"]} if frame.get("local_w") else {}),
+                    **({"local_h": frame["local_h"]} if frame.get("local_h") else {}),
+                    **({"pivot_norm": frame["pivot_norm"]} if frame.get("pivot_norm") else {}),
                 }
             )
     return {
@@ -1293,8 +1322,32 @@ def postprocess_layer_matte(asset_id: str, body: LayerMatteBody) -> dict[str, An
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
+    _after_layer_image_write(config, asset, path)
     log_bus.log(f"图层抠图 ({mode}): {layer.name} · {asset.filename}", kind="操作")
     return {"status": "ok", "mode": mode, **result}
+
+
+@router.post("/assets/{asset_id}/postprocess/layer-write-info")
+def postprocess_layer_write_info(asset_id: str, body: LayerRawBody) -> dict[str, Any]:
+    """查询图层抠图/写回将修改的文件路径（是否触及 source 原图）。"""
+    from postprocess.matte import layer_write_info
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    inbox = _ensure_inbox_for_postprocess(config, asset)
+    stack = _resolve_postprocess_stack(config, asset, body.stack)
+    layer = next((l for l in stack.layers if l.id == body.layer_id), None)
+    if not layer or layer.type != "image":
+        raise HTTPException(404, f"图层不存在或非图片: {body.layer_id}")
+    src, _inbox, _unity = config.resolve_paths(asset)
+    return layer_write_info(
+        art_root=config.art_root(),
+        layer=layer,
+        inbox_path=inbox,
+        asset_source=src if src.is_file() else None,
+    )
 
 
 def _postprocess_layer_raw_image(
@@ -1388,6 +1441,7 @@ def layer_restore_image(asset_id: str, body: LayerRestoreImageBody) -> dict[str,
         raise HTTPException(400, "图片数据过短")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
+    _after_layer_image_write(config, asset, path)
     return {"status": "ok", "path": str(path)}
 
 
@@ -1447,6 +1501,7 @@ def apply_postprocess(
         raise HTTPException(404, f"资源不存在: {asset_id}")
     body = body or {}
     _ensure_inbox_for_postprocess(config, asset)
+    _sync_inbox_before_render(config, asset)
     if "stack" in body:
         stack = stack_from_dict(body["stack"])
         if stack:
@@ -1716,11 +1771,36 @@ def _apply_ai_category_updates(cat: Any, cat_updates: dict[str, Any], applied: l
 
 
 def _apply_ai_workflow_update(config: Any, asset: Any, updates: dict[str, Any], applied: list[str]) -> None:
-    from pipeline_core import PipelineCore
+    import json
 
-    if updates.get("workflow") and isinstance(updates["workflow"], dict):
-        PipelineCore(config).save_asset_workflow(asset, updates["workflow"])
-        applied.append("workflow")
+    from paths import WORKFLOWS_DIR
+
+    wf = updates.get("workflow")
+    if not wf or not isinstance(wf, dict):
+        return
+    wf_path = WORKFLOWS_DIR / "assets" / f"{asset.id}.json"
+    wf_path.parent.mkdir(parents=True, exist_ok=True)
+    wf_path.write_text(json.dumps(wf, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    asset.workflow = f"workflows/assets/{asset.id}.json"
+    applied.append("workflow")
+
+
+def _apply_all_ai_updates(
+    config: Any,
+    asset: Any,
+    updates: dict[str, Any],
+    applied: list[str],
+) -> bool:
+    """将 AI updates 中所有非 null 字段写入内存；返回分类是否有改动。"""
+    _apply_ai_basic_updates(config, asset, updates, applied)
+    _apply_ai_prompt_updates(asset, updates, applied)
+    _apply_ai_gen_updates(asset, updates, applied)
+    _apply_ai_workflow_update(config, asset, updates, applied)
+    target_cat = config.category_by_id(asset.category)
+    cat_settings = updates.get("category_settings")
+    if target_cat and isinstance(cat_settings, dict):
+        return _apply_ai_category_updates(target_cat, cat_settings, applied)
+    return False
 
 
 @router.post("/ai/chat")
@@ -1800,22 +1880,7 @@ def ai_chat(body: AiChatBody) -> dict[str, Any]:
     hist.append({"role": "user", "content": user_text})
     hist.append({"role": "assistant", "content": message})
     applied: list[str] = []
-    cat_dirty = False
-    if mode == "basic":
-        _apply_ai_basic_updates(config, asset, updates, applied)
-    elif mode == "free":
-        _apply_ai_basic_updates(config, asset, updates, applied)
-        _apply_ai_prompt_updates(asset, updates, applied)
-        _apply_ai_gen_updates(asset, updates, applied)
-        _apply_ai_workflow_update(config, asset, updates, applied)
-        target_cat = config.category_by_id(asset.category)
-        cat_settings = updates.get("category_settings")
-        if target_cat and isinstance(cat_settings, dict):
-            cat_dirty = _apply_ai_category_updates(target_cat, cat_settings, applied)
-    else:
-        _apply_ai_prompt_updates(asset, updates, applied)
-        if mode == "workflow":
-            _apply_ai_workflow_update(config, asset, updates, applied)
+    cat_dirty = _apply_all_ai_updates(config, asset, updates, applied)
     asset_dirty = any(not k.startswith("cat.") for k in applied)
     if asset_dirty:
         config.update_asset(asset)
