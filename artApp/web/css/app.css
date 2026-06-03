@@ -2580,6 +2580,44 @@ dialog menu {
   box-shadow: 0 0 0 6px rgba(248, 113, 113, 0.08);
 }
 
+.confirm-icon.warn {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fbbf24;
+  box-shadow: 0 0 0 6px rgba(251, 191, 36, 0.08);
+}
+
+.pp-subject-dialog {
+  border-color: rgba(251, 191, 36, 0.28);
+}
+
+.pp-subject-dialog .confirm-details {
+  background: rgba(251, 191, 36, 0.06);
+  border-color: rgba(251, 191, 36, 0.2);
+}
+
+.pp-subject-dialog .confirm-details li::before {
+  color: #fbbf24;
+}
+
+.confirm-actions-stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.confirm-actions-stack .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.pp-subject-danger {
+  color: var(--danger);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.pp-subject-danger:hover {
+  background: rgba(248, 113, 113, 0.08);
+}
+
 .confirm-dialog h3 {
   margin: 0 0 8px;
   font-size: 1.05rem;
@@ -2674,6 +2712,18 @@ dialog menu {
 
 .pp-head-tools .search {
   max-width: 180px;
+}
+
+.pp-master-warn {
+  flex: 1 1 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #c87800 18%, var(--bg-panel));
+  border: 1px solid color-mix(in srgb, #c87800 35%, var(--border));
+  color: var(--text);
+  font-size: 0.875rem;
+  line-height: 1.45;
 }
 
 .pp-stage {

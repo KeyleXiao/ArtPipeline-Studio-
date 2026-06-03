@@ -165,6 +165,9 @@ async function runGenerate(assetIds, { exportAfter = false, emptyToastKey = "toa
     return;
   }
   if (!(await ensureComfyOnline())) return;
+  if (state.assetId && assetIds.includes(state.assetId)) {
+    await saveGenModeOnly();
+  }
   prepareJobUi("generate", assetIds);
   try {
     const res = await API.post("/api/generate", { asset_ids: assetIds, export_after: exportAfter });
@@ -459,10 +462,7 @@ function genModePayloadFromForm() {
   const mode = currentGenMode();
   return {
     gen_mode: mode,
-    ref_image:
-      mode === "img2img"
-        ? ($("#ref-image-path")?.value.trim() || "")
-        : (state.assetFull?.ref_image || "").trim(),
+    ref_image: mode === "img2img" ? ($("#ref-image-path")?.value.trim() || "") : "",
     ref_image_use_source: false,
     img2img_denoise: parseFloat($("#img2img-denoise")?.value) || 0.65,
   };
@@ -2248,8 +2248,102 @@ async function openAssetFile(assetId, kind) {
   }
 }
 
+function setPreviewSourceKey(key) {
+  const next = key || "inbox";
+  state.previewSource = next;
+  $$(".preview-side .seg-btn").forEach((btn) => {
+    btn.classList.toggle("active", (btn.dataset.source || "inbox") === next);
+  });
+  if (state.assetId) {
+    loadPreview();
+    if (state.previewInfo) renderPreviewInfo(state.previewInfo);
+  }
+}
+
+/** source 预览下打开后处理：inbox / source / 取消 */
+function showPostprocessSourceChoiceDialog() {
+  const dlg = $("#dlg-pp-subject");
+  const titleEl = $("#pp-subject-title");
+  const msgEl = $("#pp-subject-message");
+  const listEl = $("#pp-subject-details");
+  const inboxBtn = $("#pp-subject-inbox");
+  const sourceBtn = $("#pp-subject-source");
+  const cancelBtn = $("#pp-subject-cancel");
+  if (!dlg || !titleEl || !msgEl || !listEl || !inboxBtn || !sourceBtn || !cancelBtn) {
+    return Promise.resolve(null);
+  }
+
+  titleEl.textContent = t("pp.sourceChoiceTitle");
+  msgEl.textContent = t("pp.sourceChoiceMessage");
+  listEl.innerHTML = [
+    t("pp.sourceChoiceDetailInbox"),
+    t("pp.sourceChoiceDetailRestore"),
+    t("pp.sourceChoiceDetailSource"),
+  ]
+    .map((line) => `<li>${esc(line)}</li>`)
+    .join("");
+  inboxBtn.textContent = t("pp.sourceChoiceInbox");
+  sourceBtn.textContent = t("pp.sourceChoiceSource");
+  cancelBtn.textContent = t("dlg.cancel");
+
+  dlg.showModal();
+  return new Promise((resolve) => {
+    const finish = (val) => {
+      dlg.close();
+      inboxBtn.removeEventListener("click", onInbox);
+      sourceBtn.removeEventListener("click", onSource);
+      cancelBtn.removeEventListener("click", onCancel);
+      dlg.removeEventListener("cancel", onCancel);
+      resolve(val);
+    };
+    const onInbox = () => finish("inbox");
+    const onSource = () => finish("source");
+    const onCancel = (e) => {
+      e?.preventDefault?.();
+      finish(null);
+    };
+    inboxBtn.addEventListener("click", onInbox);
+    sourceBtn.addEventListener("click", onSource);
+    cancelBtn.addEventListener("click", onCancel);
+    dlg.addEventListener("cancel", onCancel);
+  });
+}
+
+async function launchPostprocessWindow(assetId, subject) {
+  try {
+    const prep = await API.post(`/api/assets/${encodeURIComponent(assetId)}/postprocess/prepare`, {
+      subject_path: subject,
+    });
+    if (prep.inbox_initialized) {
+      toast(t("toast.inboxFromSource"));
+    }
+  } catch (err) {
+    toast(err.message);
+    return;
+  }
+  const q = new URLSearchParams({ asset: assetId, subject });
+  window.open(`/postprocess.html?${q}`, "_blank");
+}
+
 function openPostprocess(assetId) {
-  window.open(`/postprocess.html?asset=${encodeURIComponent(assetId)}`, "_blank");
+  return openPostprocessAsync(assetId);
+}
+
+async function openPostprocessAsync(assetId) {
+  let subject = currentPreviewSourceKey();
+
+  if (subject === "source") {
+    const choice = await showPostprocessSourceChoiceDialog();
+    if (!choice) return;
+    if (choice === "inbox") {
+      subject = "inbox";
+      setPreviewSourceKey("inbox");
+    }
+  } else if (subject === "unity") {
+    if (!confirm(t("pp.confirmOpenUnityEdit"))) return;
+  }
+
+  await launchPostprocessWindow(assetId, subject);
 }
 
 async function renameAssetDialog(assetId) {
@@ -2815,7 +2909,7 @@ function bindAssetContextMenu() {
       await runExport([id], { emptyToastKey: "toast.selectAsset" });
     } else if (act === "rename") await renameAssetDialog(id);
     else if (act === "duplicate") await duplicateAsset(id).catch((err) => err && toast(err.message));
-    else if (act === "postprocess") openPostprocess(id);
+    else if (act === "postprocess") await openPostprocess(id);
     else if (act === "open-source") await openAssetFile(id, "source");
     else if (act === "open-inbox") await openAssetFile(id, "inbox");
     else if (act === "open-unity") await openAssetFile(id, "unity");
@@ -3313,6 +3407,7 @@ function bindUi() {
   bindDialogDismiss($("#dlg-rename-asset"));
   bindDialogDismiss($("#dlg-rename-category"));
   bindDialogDismiss($("#dlg-confirm"));
+  bindDialogDismiss($("#dlg-pp-subject"));
 
   $("#preview-img")?.addEventListener("error", () => {
     const asset = state.assets.find((a) => a.id === state.assetId);
@@ -3364,8 +3459,14 @@ function bindUi() {
   $$('input[name="gen_mode"]').forEach((r) => {
     r.addEventListener("change", onGenModePanelChange);
   });
-  $("#img2img-denoise-range")?.addEventListener("input", syncDenoiseFromRange);
-  $("#img2img-denoise")?.addEventListener("change", syncDenoiseFromNumber);
+  $("#img2img-denoise-range")?.addEventListener("input", () => {
+    syncDenoiseFromRange();
+    void saveGenModeOnly();
+  });
+  $("#img2img-denoise")?.addEventListener("change", () => {
+    syncDenoiseFromNumber();
+    void saveGenModeOnly();
+  });
 
   $("#log-filter")?.addEventListener("change", (e) => {
     state.logFilter = e.target.value;
@@ -3421,7 +3522,7 @@ function bindUi() {
         }
         break;
       case "postprocess":
-        if (state.assetId) openPostprocess(state.assetId);
+        if (state.assetId) await openPostprocess(state.assetId);
         break;
       case "new-category":
         newCategoryDialog();
@@ -3491,6 +3592,15 @@ function bindUi() {
         break;
       default:
         break;
+    }
+  });
+  window.addEventListener("message", (event) => {
+    if (event.origin !== location.origin) return;
+    const data = event.data;
+    if (!data || data.type !== "postprocess-applied" || !data.assetId) return;
+    if (data.assetId === state.assetId) {
+      loadPreview();
+      loadPreviewInfo(data.assetId);
     }
   });
 }

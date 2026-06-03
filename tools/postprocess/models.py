@@ -184,6 +184,7 @@ class LayerStack:
     canvas_width: int
     canvas_height: int
     layers: list[Layer] = field(default_factory=list)
+    edit_subject: str | None = None
 
     def subject_layer(self) -> Layer | None:
         for layer in self.layers:
@@ -268,18 +269,32 @@ def stack_from_dict(raw: dict[str, Any] | None) -> LayerStack | None:
     if not raw:
         return None
     layers = [layer_from_dict(item) for item in raw.get("layers", [])]
+    edit_subject = raw.get("edit_subject")
+    edit_key = str(edit_subject).strip().lower() if edit_subject else None
+    if edit_key in ("in", "inbox"):
+        edit_key = "inbox"
+    elif edit_key in ("src", "source"):
+        edit_key = "source"
+    elif edit_key in ("engine", "unity"):
+        edit_key = "unity"
+    else:
+        edit_key = None
     return LayerStack(
         canvas_width=int(raw.get("canvas", {}).get("width", raw.get("canvas_width", 512))),
         canvas_height=int(raw.get("canvas", {}).get("height", raw.get("canvas_height", 512))),
         layers=layers,
+        edit_subject=edit_key,
     )
 
 
 def stack_to_dict(stack: LayerStack) -> dict[str, Any]:
-    return {
+    out: dict[str, Any] = {
         "canvas": {"width": stack.canvas_width, "height": stack.canvas_height},
         "layers": [layer_to_dict(layer) for layer in stack.layers],
     }
+    if stack.edit_subject:
+        out["edit_subject"] = stack.edit_subject
+    return out
 
 
 def default_stack_for_canvas(width: int, height: int) -> LayerStack:

@@ -467,6 +467,22 @@
     </div>
   </dialog>
 
+  <dialog id="dlg-pp-subject" class="confirm-dialog pp-subject-dialog">
+    <div class="confirm-dialog-inner">
+      <div class="confirm-icon warn" id="pp-subject-icon" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+      </div>
+      <h3 id="pp-subject-title"></h3>
+      <p class="confirm-message muted" id="pp-subject-message"></p>
+      <ul class="confirm-details" id="pp-subject-details"></ul>
+      <menu class="confirm-actions confirm-actions-stack">
+        <button type="button" class="btn primary" id="pp-subject-inbox"></button>
+        <button type="button" class="btn ghost pp-subject-danger" id="pp-subject-source"></button>
+        <button type="button" class="btn ghost" id="pp-subject-cancel" data-i18n="dlg.cancel">取消</button>
+      </menu>
+    </div>
+  </dialog>
+
   <div class="ctx-menu hidden" id="cat-ctx-menu" role="menu" data-i18n-aria="ctx.catMenuAria" aria-label="分类菜单">
     <button type="button" class="ctx-item accent" data-ctx="gen-category" data-i18n="ctx.catGenerate">生成本类</button>
     <button type="button" class="ctx-item" data-ctx="gen-category-export" data-i18n="ctx.catGenerateExport">生成并导出本类</button>

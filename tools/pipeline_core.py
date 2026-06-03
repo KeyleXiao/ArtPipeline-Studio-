@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable
 
 from comfyui_client import ComfyUiClient, ComfyUiError, ProgressCallback, check_connection
-from config_manager import Asset, ConfigManager, GEN_MODE_REDRAW, GEN_MODES_IMG2IMG
+from config_manager import Asset, ConfigManager, GEN_MODE_REDRAW, GEN_MODES_IMG2IMG, effective_gen_mode
 from paths import WORKFLOWS_DIR
 from workflow_engine import build_workflow, load_workflow_template
 
@@ -122,14 +122,14 @@ class PipelineCore:
         seed = self.config.resolve_seed_for_asset(asset, override=seed)
         prefix = Path(asset.filename).stem
 
-        gen_mode = getattr(asset, "gen_mode", "txt2img") or "txt2img"
+        gen_mode = effective_gen_mode(asset)
         ref_image_name = ""
         denoise = 1.0
         if gen_mode in GEN_MODES_IMG2IMG:
             ref_path = self.config.resolve_ref_image_path(asset)
             if not ref_path:
                 if gen_mode == GEN_MODE_REDRAW:
-                    return GenerateResult(asset.id, False, "重绘图：source 原图不存在")
+                    return GenerateResult(asset.id, False, "重绘图：source 原图不存在（且无 inbox 参考）")
                 return GenerateResult(asset.id, False, "图生图：参考图不存在或未配置路径")
             ref_image_name = client.upload_image(ref_path)
             denoise = float(getattr(asset, "img2img_denoise", 0.65) or 0.65)

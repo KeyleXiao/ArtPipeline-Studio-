@@ -89,6 +89,14 @@ def parse_gen_mode(raw: dict[str, Any]) -> str:
     return v if v in GEN_MODES else GEN_MODE_TXT2IMG
 
 
+def effective_gen_mode(asset: Asset) -> str:
+    """运行时生成模式（兼容 img2img + ref_image_use_source → redraw）。"""
+    mode = getattr(asset, "gen_mode", GEN_MODE_TXT2IMG) or GEN_MODE_TXT2IMG
+    if mode == GEN_MODE_IMG2IMG and getattr(asset, "ref_image_use_source", False):
+        return GEN_MODE_REDRAW
+    return mode if mode in GEN_MODES else GEN_MODE_TXT2IMG
+
+
 @dataclass
 class Category:
     id: str
@@ -764,9 +772,21 @@ class ConfigManager:
         return WORKFLOWS_DIR / "_default_sdxl_img2img_api.json"
 
     def resolve_ref_image_path(self, asset: Asset) -> Path | None:
-        mode = getattr(asset, "gen_mode", GEN_MODE_TXT2IMG) or GEN_MODE_TXT2IMG
+        mode = effective_gen_mode(asset)
         src, inbox, _unity = self.resolve_paths(asset)
-        if mode == GEN_MODE_REDRAW or getattr(asset, "ref_image_use_source", False):
+        if mode == GEN_MODE_REDRAW:
+            try:
+                if src.is_file():
+                    return src.resolve()
+            except OSError:
+                pass
+            try:
+                if inbox.is_file():
+                    return inbox.resolve()
+            except OSError:
+                pass
+            return None
+        if getattr(asset, "ref_image_use_source", False):
             try:
                 if src.is_file():
                     return src.resolve()

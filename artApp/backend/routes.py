@@ -155,6 +155,7 @@ class AssetUpdateBody(BaseModel):
 class LayerMatteBody(BaseModel):
     layer_id: str
     stack: dict[str, Any] | None = None
+    subject_path: str | None = None
     mode: str = "border"
     seed_x: int | None = None
     seed_y: int | None = None
@@ -167,12 +168,18 @@ class LayerMatteBody(BaseModel):
 class LayerRawBody(BaseModel):
     layer_id: str
     stack: dict[str, Any] | None = None
+    subject_path: str | None = None
 
 
 class LayerRestoreImageBody(BaseModel):
     layer_id: str
     image_b64: str
     stack: dict[str, Any] | None = None
+    subject_path: str | None = None
+
+
+class PostprocessPrepareBody(BaseModel):
+    subject_path: str = "inbox"
 
 
 class CategoryUpdateBody(BaseModel):
@@ -644,6 +651,8 @@ def update_asset(asset_id: str, body: AssetUpdateBody) -> dict[str, Any]:
             raise HTTPException(400, "gen_mode 须为 txt2img、img2img 或 redraw")
         asset.gen_mode = mode
         asset.ref_image_use_source = False
+        if mode == "redraw":
+            asset.ref_image = ""
     if body.ref_image is not None:
         asset.ref_image = body.ref_image.strip()
     if body.ref_image_use_source is not None:
@@ -1056,14 +1065,14 @@ def validate_workflow(asset_id: str, body: dict[str, Any]) -> dict[str, str]:
 
 @router.get("/assets/{asset_id}/workflow/default")
 def default_workflow(asset_id: str) -> dict[str, str]:
-    from config_manager import GEN_MODES_IMG2IMG, DEFAULT_IMG2IMG_WORKFLOW
+    from config_manager import GEN_MODES_IMG2IMG, DEFAULT_IMG2IMG_WORKFLOW, effective_gen_mode
     from paths import WORKFLOWS_DIR
 
     config = get_config_manager()
     asset = config.asset_by_id(asset_id)
     if not asset:
         raise HTTPException(404, f"资源不存在: {asset_id}")
-    gen_mode = getattr(asset, "gen_mode", "txt2img") or "txt2img"
+    gen_mode = effective_gen_mode(asset)
     if gen_mode in GEN_MODES_IMG2IMG:
         rel = DEFAULT_IMG2IMG_WORKFLOW
     else:
@@ -1094,21 +1103,65 @@ def _ensure_inbox_for_postprocess(config: Any, asset: Any) -> Path:
     return inbox
 
 
+def _resolve_subject_path(config: Any, asset: Any, subject: str | None) -> Path | None:
+    """解析主体 $asset 读取路径；subject 可为 source / inbox / unity 或绝对/相对路径。"""
+    src, inbox, unity = config.resolve_paths(asset)
+    key = (subject or "").strip().lower()
+    if key in ("source", "src"):
+        return src if src.is_file() else None
+    if key in ("inbox", "in"):
+        return inbox if inbox.is_file() else None
+    if key in ("unity", "engine"):
+        return unity if unity.is_file() else None
+    if subject:
+        p = Path(subject).expanduser()
+        if p.is_file():
+            return p
+        rel = config.art_root() / subject
+        if rel.is_file():
+            return rel
+    if inbox.is_file():
+        return inbox
+    if src.is_file():
+        return src
+    return None
+
+
 def _pp_resolver(config: Any, asset: Any, subject: str | None = None) -> Any:
     from postprocess.engine import AssetImageResolver
 
     src, inbox, unity = config.resolve_paths(asset)
-    subj_path = Path(subject) if subject else None
-    if subj_path is None or not subj_path.is_file():
-        if inbox.is_file():
-            subj_path = inbox
     return AssetImageResolver(
         art_root=config.art_root(),
         asset_source=src if src.is_file() else None,
         asset_inbox=inbox if inbox.is_file() else None,
         asset_unity=unity if unity.is_file() else None,
-        subject_path=subj_path,
+        subject_path=_resolve_subject_path(config, asset, subject),
     )
+
+
+def _sync_inbox_before_apply(config: Any, asset: Any, body: dict[str, Any]) -> None:
+    """apply / preview 前：source 有更新时同步到 inbox，或按请求强制同步。"""
+    from postprocess.matte import (
+        is_subject_master_edit_mode,
+        sync_asset_source_to_inbox,
+        sync_inbox_if_source_newer,
+    )
+
+    src, inbox, _unity = config.resolve_paths(asset)
+    if not src.is_file():
+        return
+    editing_master = is_subject_master_edit_mode(body.get("subject_path"))
+    if body.get("sync_source") and not editing_master:
+        sync_asset_source_to_inbox(src, inbox)
+        log_bus.log(f"apply 前已同步 source → inbox: {asset.filename}", kind="操作")
+        return
+    if body.get("prefer_source_sync") and not editing_master:
+        sync_asset_source_to_inbox(src, inbox)
+        log_bus.log(f"apply 前已同步 source → inbox: {asset.filename}", kind="操作")
+        return
+    if sync_inbox_if_source_newer(src, inbox):
+        log_bus.log(f"apply 前已同步 source → inbox: {asset.filename}", kind="操作")
 
 
 def _after_layer_image_write(config: Any, asset: Any, path: Path | None) -> None:
@@ -1124,13 +1177,130 @@ def _after_layer_image_write(config: Any, asset: Any, path: Path | None) -> None
         log_bus.log(f"已同步 source → inbox: {asset.filename}", kind="操作")
 
 
-def _sync_inbox_before_render(config: Any, asset: Any) -> None:
-    """合成/apply 前：source 较新时刷新 inbox，避免主体层仍用旧 inbox。"""
-    from postprocess.matte import sync_inbox_if_source_newer
+def _pp_layer_write_kwargs(config: Any, asset: Any, inbox: Path, subject_path: str | None) -> dict[str, Any]:
+    src, _inbox, unity = config.resolve_paths(asset)
+    return {
+        "art_root": config.art_root(),
+        "inbox_path": inbox,
+        "asset_source": src if src.is_file() else None,
+        "asset_unity": unity if unity.is_file() else None,
+        "subject_path": subject_path,
+    }
 
-    src, inbox, _ = config.resolve_paths(asset)
-    if sync_inbox_if_source_newer(src if src.is_file() else None, inbox):
-        log_bus.log(f"apply 前已同步 source → inbox: {asset.filename}", kind="操作")
+
+def _write_bytes_atomic(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.write.tmp")
+    try:
+        tmp.write_bytes(data)
+        tmp.replace(path)
+    finally:
+        if tmp.is_file():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+def _master_target_path(
+    config: Any,
+    asset: Any,
+    subject_path: str | None,
+) -> tuple[str, Path] | None:
+    from postprocess.matte import normalize_edit_subject
+
+    src, _inbox, unity = config.resolve_paths(asset)
+    mode = normalize_edit_subject(subject_path)
+    if mode == "source" and src.is_file():
+        return mode, src
+    if mode == "unity" and unity.is_file():
+        return mode, unity
+    return None
+
+
+def _bake_subject_crop_to_master(
+    config: Any,
+    asset: Any,
+    stack: Any,
+    resolver: Any,
+    subject_path: str | None,
+) -> bool:
+    """source/unity 模式：将主体裁切烘焙写入原图。"""
+    import io
+
+    from postprocess.engine import bake_subject_crop_pixels
+    from postprocess.matte import is_subject_master_edit_mode
+    from postprocess.models import ASSET_SUBJECT_SOURCE, layer_image_source
+
+    if not is_subject_master_edit_mode(subject_path):
+        return False
+    target_info = _master_target_path(config, asset, subject_path)
+    if not target_info:
+        return False
+    mode, target = target_info
+    subj = stack.subject_layer()
+    if not subj or subj.type != "image" or layer_image_source(subj) != ASSET_SUBJECT_SOURCE:
+        return False
+    if not subj.crop:
+        return False
+    baked = bake_subject_crop_pixels(subj, resolver)
+    if baked is None:
+        return False
+    buf = io.BytesIO()
+    baked.save(buf, format="PNG", optimize=True)
+    _write_bytes_atomic(target, buf.getvalue())
+    subj.crop = None
+    log_bus.log(f"已烘焙裁切到 {mode}: {asset.filename}", kind="操作")
+    return True
+
+
+def _bake_subject_transform_to_master(
+    config: Any,
+    asset: Any,
+    stack: Any,
+    resolver: Any,
+    subject_path: str | None,
+) -> bool:
+    """source/unity 编辑模式：将主体 $asset 的裁切/镜像/缩放/旋转烘焙写入原图。"""
+    import io
+
+    from postprocess.engine import bake_image_layer_pixels
+    from postprocess.matte import is_subject_master_edit_mode
+    from postprocess.models import ASSET_SUBJECT_SOURCE, LayerTransform, layer_image_source
+
+    if not is_subject_master_edit_mode(subject_path):
+        return False
+    target_info = _master_target_path(config, asset, subject_path)
+    if not target_info:
+        return False
+    mode, target = target_info
+    subj = stack.subject_layer()
+    if not subj or subj.type != "image" or layer_image_source(subj) != ASSET_SUBJECT_SOURCE:
+        return False
+    baked = bake_image_layer_pixels(subj, resolver)
+    if baked is None:
+        return False
+    buf = io.BytesIO()
+    baked.save(buf, format="PNG", optimize=True)
+    _write_bytes_atomic(target, buf.getvalue())
+    offset_x = subj.transform.offset_x
+    offset_y = subj.transform.offset_y
+    anchor = subj.transform.anchor
+    subj.crop = None
+    subj.transform = LayerTransform(
+        offset_x=offset_x,
+        offset_y=offset_y,
+        scale=1.0,
+        anchor=anchor,
+    )
+    label = "source" if mode == "source" else "unity"
+    log_bus.log(f"已烘焙变换到 {label}: {asset.filename}", kind="操作")
+    return True
+
+
+def _sync_inbox_before_render(config: Any, asset: Any, body: dict[str, Any] | None = None) -> None:
+    """合成/apply 前：source 较新时刷新 inbox，避免主体层仍用旧 inbox。"""
+    _sync_inbox_before_apply(config, asset, body or {})
 
 
 def _resolve_postprocess_stack(
@@ -1168,6 +1338,7 @@ def get_postprocess(asset_id: str) -> dict[str, Any]:
 
 @router.put("/assets/{asset_id}/postprocess")
 def put_postprocess(asset_id: str, body: dict[str, Any]) -> dict[str, str]:
+    from postprocess.matte import normalize_edit_subject
     from postprocess.models import stack_from_dict
 
     config = get_config_manager()
@@ -1176,9 +1347,52 @@ def put_postprocess(asset_id: str, body: dict[str, Any]) -> dict[str, str]:
     stack = stack_from_dict(body.get("stack"))
     if not stack:
         raise HTTPException(400, "无效 stack")
+    edit_subject = body.get("edit_subject")
+    if edit_subject is not None:
+        stack.edit_subject = normalize_edit_subject(str(edit_subject))
     config.set_postprocess_stack(asset_id, stack)
     reload_config_manager()
     return {"status": "saved"}
+
+
+@router.post("/assets/{asset_id}/postprocess/prepare")
+def prepare_postprocess(asset_id: str, body: PostprocessPrepareBody) -> dict[str, Any]:
+    """打开后处理前：inbox 为空时从 source 复制；校验编辑目标文件存在。"""
+    from postprocess.matte import normalize_edit_subject
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    subject = normalize_edit_subject(body.subject_path)
+    src, inbox, unity = config.resolve_paths(asset)
+    inbox_initialized = False
+
+    if subject == "inbox":
+        if not inbox.is_file():
+            if not src.is_file():
+                raise HTTPException(400, f"无 inbox 且 source 不存在: {asset.filename}")
+            inbox.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, inbox)
+            inbox_initialized = True
+            log_bus.log(f"已从 source 初始化 inbox: {asset.filename}", kind="操作")
+    elif subject == "source":
+        if not src.is_file():
+            raise HTTPException(400, f"source 原图不存在: {asset.filename}")
+    elif subject == "unity":
+        if not unity.is_file():
+            raise HTTPException(400, f"游戏引擎导出文件不存在: {asset.filename}")
+
+    return {
+        "status": "ok",
+        "subject_path": subject,
+        "inbox_initialized": inbox_initialized,
+        "paths": {
+            "source": str(src) if src else "",
+            "inbox": str(inbox) if inbox else "",
+            "unity": str(unity) if unity else "",
+        },
+    }
 
 
 @router.post("/assets/{asset_id}/postprocess/preview")
@@ -1187,15 +1401,14 @@ def postprocess_preview(asset_id: str, body: dict[str, Any]) -> Response:
     import io
 
     from postprocess.engine import render_stack, stack_checkerboard
-    from postprocess.models import stack_from_dict
 
     config = get_config_manager()
     asset = config.asset_by_id(asset_id)
     if not asset:
         raise HTTPException(404, f"资源不存在: {asset_id}")
     _ensure_inbox_for_postprocess(config, asset)
-    _sync_inbox_before_render(config, asset)
-    stack = stack_from_dict(body.get("stack"))
+    _sync_inbox_before_render(config, asset, body)
+    stack = _resolve_postprocess_stack(config, asset, body.get("stack"))
     if not stack:
         raise HTTPException(400, "无效 stack")
     resolver = _pp_resolver(config, asset, body.get("subject_path"))
@@ -1285,9 +1498,8 @@ def postprocess_layer_matte(asset_id: str, body: LayerMatteBody) -> dict[str, An
         raise HTTPException(400, "图层已锁定")
 
     path = resolve_layer_image_path(
-        art_root=config.art_root(),
+        **_pp_layer_write_kwargs(config, asset, inbox, body.subject_path),
         layer=layer,
-        inbox_path=inbox,
     )
     if not path:
         raise HTTPException(404, "图层图片不存在")
@@ -1341,12 +1553,9 @@ def postprocess_layer_write_info(asset_id: str, body: LayerRawBody) -> dict[str,
     layer = next((l for l in stack.layers if l.id == body.layer_id), None)
     if not layer or layer.type != "image":
         raise HTTPException(404, f"图层不存在或非图片: {body.layer_id}")
-    src, _inbox, _unity = config.resolve_paths(asset)
     return layer_write_info(
-        art_root=config.art_root(),
+        **_pp_layer_write_kwargs(config, asset, inbox, body.subject_path),
         layer=layer,
-        inbox_path=inbox,
-        asset_source=src if src.is_file() else None,
     )
 
 
@@ -1355,6 +1564,7 @@ def _postprocess_layer_raw_image(
     asset: Any,
     layer_id: str,
     stack_body: dict[str, Any] | None = None,
+    subject_path: str | None = None,
 ) -> tuple[bytes, Any]:
     import io
 
@@ -1368,9 +1578,8 @@ def _postprocess_layer_raw_image(
     if not layer or layer.type != "image":
         raise HTTPException(404, f"图层不存在或非图片: {layer_id}")
     path = resolve_layer_image_path(
-        art_root=config.art_root(),
+        **_pp_layer_write_kwargs(config, asset, inbox, subject_path),
         layer=layer,
-        inbox_path=inbox,
     )
     if not path or not path.is_file():
         raise HTTPException(404, "图层图片不存在")
@@ -1389,7 +1598,9 @@ def layer_raw_png_post(asset_id: str, body: LayerRawBody) -> Response:
     asset = config.asset_by_id(asset_id)
     if not asset:
         raise HTTPException(404, f"资源不存在: {asset_id}")
-    data, _layer = _postprocess_layer_raw_image(config, asset, body.layer_id, body.stack)
+    data, _layer = _postprocess_layer_raw_image(
+        config, asset, body.layer_id, body.stack, body.subject_path
+    )
     return Response(content=data, media_type="image/png")
 
 
@@ -1424,9 +1635,8 @@ def layer_restore_image(asset_id: str, body: LayerRestoreImageBody) -> dict[str,
     if layer.locked:
         raise HTTPException(400, "图层已锁定")
     path = resolve_layer_image_path(
-        art_root=config.art_root(),
+        **_pp_layer_write_kwargs(config, asset, inbox, body.subject_path),
         layer=layer,
-        inbox_path=inbox,
     )
     if not path:
         raise HTTPException(404, "图层图片不存在")
@@ -1467,8 +1677,8 @@ def restore_postprocess_from_source(asset_id: str) -> dict[str, Any]:
 
 
 @router.get("/assets/{asset_id}/postprocess/subject-raw.png")
-def subject_raw_png(asset_id: str) -> Response:
-    """主体 inbox 图（裁切编辑器用，不读 source）。"""
+def subject_raw_png(asset_id: str, subject: str | None = None) -> Response:
+    """主体原图 PNG（裁切编辑器用；subject 决定读 source / inbox / unity）。"""
     import io
 
     from postprocess.models import ASSET_SUBJECT_SOURCE
@@ -1477,8 +1687,9 @@ def subject_raw_png(asset_id: str) -> Response:
     asset = config.asset_by_id(asset_id)
     if not asset:
         raise HTTPException(404, f"资源不存在: {asset_id}")
-    _ensure_inbox_for_postprocess(config, asset)
-    resolver = _pp_resolver(config, asset)
+    if not subject:
+        _ensure_inbox_for_postprocess(config, asset)
+    resolver = _pp_resolver(config, asset, subject)
     raw = resolver.resolve(ASSET_SUBJECT_SOURCE)
     if raw is None:
         raise HTTPException(404, "无主体原图")
@@ -1487,13 +1698,48 @@ def subject_raw_png(asset_id: str) -> Response:
     return Response(content=buf.getvalue(), media_type="image/png")
 
 
+@router.post("/assets/{asset_id}/postprocess/bake-subject-crop")
+def bake_subject_crop_postprocess(asset_id: str, body: dict[str, Any] | None = None) -> dict[str, str]:
+    """source/unity 模式：确认裁切后直接写入原图。"""
+    from postprocess.matte import is_subject_master_edit_mode, resolve_layer_image_path
+
+    config = get_config_manager()
+    asset = config.asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {asset_id}")
+    body = body or {}
+    if not is_subject_master_edit_mode(body.get("subject_path")):
+        raise HTTPException(400, "仅 source / unity 编辑模式可直写原图")
+    inbox = _ensure_inbox_for_postprocess(config, asset)
+    stack = _resolve_postprocess_stack(config, asset, body.get("stack"))
+    if not stack:
+        raise HTTPException(400, "无效 stack")
+    resolver = _pp_resolver(config, asset, body.get("subject_path"))
+    subj = stack.subject_layer()
+    if not subj or not subj.crop:
+        raise HTTPException(400, "主体无裁切区域")
+    if not _bake_subject_crop_to_master(config, asset, stack, resolver, body.get("subject_path")):
+        raise HTTPException(400, "裁切写入失败")
+    path = resolve_layer_image_path(
+        **_pp_layer_write_kwargs(config, asset, inbox, body.get("subject_path")),
+        layer=subj,
+    )
+    _after_layer_image_write(config, asset, path)
+    if body.get("edit_subject") is not None:
+        from postprocess.matte import normalize_edit_subject
+
+        stack.edit_subject = normalize_edit_subject(str(body.get("edit_subject")))
+    config.set_postprocess_stack(asset_id, stack)
+    reload_config_manager()
+    return {"status": "ok", "path": str(path) if path else ""}
+
+
 @router.post("/assets/{asset_id}/postprocess/apply")
 def apply_postprocess(
     asset_id: str,
     body: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from postprocess.engine import render_stack_to_png_bytes
-    from postprocess.models import stack_from_dict
 
     config = get_config_manager()
     asset = config.asset_by_id(asset_id)
@@ -1501,22 +1747,59 @@ def apply_postprocess(
         raise HTTPException(404, f"资源不存在: {asset_id}")
     body = body or {}
     _ensure_inbox_for_postprocess(config, asset)
-    _sync_inbox_before_render(config, asset)
-    if "stack" in body:
-        stack = stack_from_dict(body["stack"])
-        if stack:
-            config.set_postprocess_stack(asset_id, stack)
-    else:
-        stack = config.get_postprocess_stack(asset_id) or config.default_postprocess_stack(asset)
+    _sync_inbox_before_apply(config, asset, body)
+    stack = _resolve_postprocess_stack(config, asset, body.get("stack"))
+    if not stack:
+        raise HTTPException(400, "无效 stack")
     resolver = _pp_resolver(config, asset, body.get("subject_path"))
     _src, inbox, unity = config.resolve_paths(asset)
-    data = render_stack_to_png_bytes(stack, resolver)
+    from postprocess.matte import is_subject_master_edit_mode, normalize_edit_subject
+
+    baked_master = False
+    if is_subject_master_edit_mode(body.get("subject_path")):
+        baked_master = _bake_subject_transform_to_master(
+            config, asset, stack, resolver, body.get("subject_path")
+        )
+        resolver = _pp_resolver(config, asset, body.get("subject_path"))
+    try:
+        data = render_stack_to_png_bytes(stack, resolver)
+    except Exception as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if not data:
+        raise HTTPException(500, "合成结果为空")
     inbox.parent.mkdir(parents=True, exist_ok=True)
-    inbox.write_bytes(data)
+    tmp = inbox.with_name(f".{inbox.name}.apply.tmp")
+    try:
+        tmp.write_bytes(data)
+        tmp.replace(inbox)
+    finally:
+        if tmp.is_file():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+    if body.get("edit_subject") is not None:
+        stack.edit_subject = normalize_edit_subject(str(body.get("edit_subject")))
+    elif body.get("subject_path"):
+        stack.edit_subject = normalize_edit_subject(str(body.get("subject_path")))
     config.set_postprocess_stack(asset_id, stack)
     reload_config_manager()
-    log_bus.log(f"后处理已写入 inbox: {asset.filename}", kind="操作")
-    result: dict[str, Any] = {"path": str(inbox)}
+    mode = normalize_edit_subject(body.get("subject_path"))
+    if baked_master and mode == "source":
+        log_bus.log(f"后处理已写入 source 并同步 inbox: {asset.filename}", kind="操作")
+    elif baked_master and mode == "unity":
+        log_bus.log(f"后处理已写入游戏引擎文件并同步 inbox: {asset.filename}", kind="操作")
+    else:
+        log_bus.log(f"后处理已写入 inbox: {asset.filename}", kind="操作")
+    result: dict[str, Any] = {"path": str(inbox), "bytes": len(data)}
+    if baked_master:
+        src, _inbox, unity = config.resolve_paths(asset)
+        if mode == "source" and src.is_file():
+            result["source_path"] = str(src)
+        elif mode == "unity" and unity.is_file():
+            result["unity_path"] = str(unity)
+        result["master_baked"] = True
     if body.get("export_unity"):
         from pipeline_core import PipelineCore
 
@@ -1730,6 +2013,8 @@ def _apply_ai_gen_updates(asset: Any, updates: dict[str, Any], applied: list[str
             raise HTTPException(400, "gen_mode 须为 txt2img / img2img / redraw")
         asset.gen_mode = mode
         asset.ref_image_use_source = False
+        if mode == "redraw":
+            asset.ref_image = ""
         applied.append("gen_mode")
     if _ai_update_present(updates.get("ref_image")):
         asset.ref_image = str(updates["ref_image"]).strip()

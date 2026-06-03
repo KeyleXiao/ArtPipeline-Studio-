@@ -52,12 +52,38 @@ def sync_asset_source_to_inbox(asset_source: Path, inbox: Path) -> bool:
     return True
 
 
+def normalize_edit_subject(subject_path: str | None) -> str:
+    """后处理编辑目标：inbox / source / unity。"""
+    key = (subject_path or "inbox").strip().lower()
+    if key in ("source", "src"):
+        return "source"
+    if key in ("unity", "engine"):
+        return "unity"
+    return "inbox"
+
+
+def is_subject_source_edit_mode(subject_path: str | None) -> bool:
+    """后处理以 source 原图为主体编辑（$asset 读写均指向 source）。"""
+    return normalize_edit_subject(subject_path) == "source"
+
+
+def is_subject_unity_edit_mode(subject_path: str | None) -> bool:
+    return normalize_edit_subject(subject_path) == "unity"
+
+
+def is_subject_master_edit_mode(subject_path: str | None) -> bool:
+    """直接编辑 source 或 unity 导出文件（非 inbox 副本）。"""
+    return normalize_edit_subject(subject_path) in ("source", "unity")
+
+
 def sync_inbox_if_source_newer(asset_source: Path | None, inbox: Path) -> bool:
-    """apply 前兜底：source 比 inbox 新时同步（避免只改了 source 未写入 inbox）。"""
-    if asset_source is None or not asset_source.is_file() or not inbox.is_file():
+    """apply 前兜底：source 不旧于 inbox 时同步（避免只改了 source 未写入 inbox）。"""
+    if asset_source is None or not asset_source.is_file():
         return False
+    if not inbox.is_file():
+        return sync_asset_source_to_inbox(asset_source, inbox)
     try:
-        if asset_source.stat().st_mtime <= inbox.stat().st_mtime:
+        if asset_source.stat().st_mtime < inbox.stat().st_mtime:
             return False
     except OSError:
         return False
@@ -69,13 +95,25 @@ def resolve_layer_image_path(
     art_root: Path,
     layer: Layer,
     inbox_path: Path,
+    asset_source: Path | None = None,
+    asset_unity: Path | None = None,
+    subject_path: str | None = None,
 ) -> Path | None:
     """返回可写的图层 PNG 路径。"""
     key = layer_image_source(layer)
     if not key:
         return None
     if key == ASSET_SUBJECT_SOURCE:
-        return inbox_path if inbox_path.is_file() else None
+        mode = normalize_edit_subject(subject_path)
+        if mode == "source" and asset_source and asset_source.is_file():
+            return asset_source
+        if mode == "unity" and asset_unity and asset_unity.is_file():
+            return asset_unity
+        if inbox_path.is_file():
+            return inbox_path
+        if asset_source and asset_source.is_file():
+            return asset_source
+        return None
     path = Path(key)
     if not path.is_absolute():
         path = art_root / key
@@ -139,8 +177,17 @@ def layer_write_info(
     layer: Layer,
     inbox_path: Path,
     asset_source: Path | None,
+    asset_unity: Path | None = None,
+    subject_path: str | None = None,
 ) -> dict[str, Any]:
-    path = resolve_layer_image_path(art_root=art_root, layer=layer, inbox_path=inbox_path)
+    path = resolve_layer_image_path(
+        art_root=art_root,
+        layer=layer,
+        inbox_path=inbox_path,
+        asset_source=asset_source,
+        asset_unity=asset_unity,
+        subject_path=subject_path,
+    )
     touches = touches_source_master(path, art_root=art_root, asset_source=asset_source)
     writes_inbox = False
     if path and inbox_path.is_file():

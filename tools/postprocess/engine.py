@@ -72,11 +72,13 @@ class AssetImageResolver:
         return _load_rgba(path)
 
     def _subject_file_path(self) -> Path | None:
-        """主体层 $asset 仅读 inbox（后处理不碰 source）。"""
+        """主体层 $asset：优先 subject_path，其次 inbox，再回退 source。"""
         if self.subject_path and self.subject_path.is_file():
             return self.subject_path
         if self.asset_inbox and self.asset_inbox.is_file():
             return self.asset_inbox
+        if self.asset_source and self.asset_source.is_file():
+            return self.asset_source
         return None
 
 
@@ -235,6 +237,26 @@ class LayerFrame:
     pivot: tuple[float, float] | None
     local_w: int = 0
     local_h: int = 0
+
+
+def bake_image_layer_pixels(layer: Layer, resolver: ImageResolver) -> Image.Image | None:
+    """将图层的裁切、镜像、缩放、旋转烘焙为 raster（不含画布位移 offset）。"""
+    src_key = layer_image_source(layer)
+    raw = resolver.resolve(src_key)
+    if raw is None:
+        return None
+    im = _apply_crop(raw, layer.crop)
+    im, _, _, _ = _prepare_scaled_image(im, layer.transform)
+    return im
+
+
+def bake_subject_crop_pixels(layer: Layer, resolver: ImageResolver) -> Image.Image | None:
+    """仅将裁切区域烘焙为 raster（不含镜像/缩放/旋转）。"""
+    src_key = layer_image_source(layer)
+    raw = resolver.resolve(src_key)
+    if raw is None or not layer.crop:
+        return None
+    return _apply_crop(raw, layer.crop)
 
 
 def _prepare_image_layer(

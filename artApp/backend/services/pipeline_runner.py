@@ -94,6 +94,10 @@ class PipelineRunner:
         config = get_config_manager()
 
         def task() -> None:
+            from backend.deps import reload_config_manager
+
+            nonlocal config
+            config = reload_config_manager()
             pipeline = PipelineCore(config)
             ok, comfy_msg = pipeline.test_comfyui()
             if not ok:
@@ -115,16 +119,20 @@ class PipelineRunner:
                     f"{', '.join(a.filename for a in disabled)}",
                     kind="生成",
                 )
-            total = len(assets)
+            total = len(asset_ids)
             log_bus.log(f"── 开始 {'生成并导出' if export_after else '生成'} {total} 张 ──", kind="生成")
 
             def progress_cb(info: dict) -> None:
                 self._set_progress(info)
 
-            for i, asset in enumerate(assets, start=1):
+            for i, asset_id in enumerate(asset_ids, start=1):
                 if pipeline.cancel_event.is_set():
                     log_bus.log("── 已取消 ──", kind="生成")
                     break
+                asset = config.asset_by_id(asset_id)
+                if not asset:
+                    log_bus.log(f"SKIP 资源不存在: {asset_id}", kind="生成")
+                    continue
                 self._set_progress(
                     {"kind": "batch", "index": i, "total": total, "filename": asset.filename}
                 )

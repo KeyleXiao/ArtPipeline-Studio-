@@ -15,6 +15,8 @@ import { bindRipple, hideGlobalOverlay, showGlobalOverlay, withBtnBusy } from ".
 
 const params = new URLSearchParams(location.search);
 const assetId = params.get("asset");
+/** 主界面打开时传入：source | inbox | unity，决定主体 $asset 读取哪张图 */
+const subjectMode = (params.get("subject") || "inbox").trim().toLowerCase();
 
 const $ = (s) => document.querySelector(s);
 
@@ -33,10 +35,11 @@ let selectedId = null;
 let soloId = null;
 let boundsData = { layers: [], canvas: { width: 512, height: 512 }, raw_sizes: {} };
 let previewTimer = null;
-let previewBusy = false;
-let previewQueued = false;
 let previewReq = 0;
+let previewAbort = null;
 let previewBlobUrl = null;
+let boundsTimer = null;
+let boundsReq = 0;
 
 let drag = null;
 let cropMode = false;
@@ -92,7 +95,7 @@ async function fetchLayerRawBase64(layerId) {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ layer_id: layerId, stack }),
+        body: JSON.stringify(previewBody({ layer_id: layerId })),
       },
     );
     if (!res.ok) return null;
@@ -130,9 +133,9 @@ async function restoreHistoryEntry(entry) {
     for (const [layerId, b64] of Object.entries(entry.images || {})) {
       if (!b64) continue;
       await API.post(`/api/assets/${encodeURIComponent(assetId)}/postprocess/layer-restore-image`, {
+        ...previewBody(),
         layer_id: layerId,
         image_b64: b64,
-        stack,
       });
     }
     renderLayers();
@@ -250,7 +253,17 @@ function canvasSize() {
 }
 
 function previewBody(extra = {}) {
-  return { stack, solo_layer_id: soloId || undefined, ...extra };
+  return {
+    stack,
+    solo_layer_id: soloId || undefined,
+    subject_path: subjectMode || "inbox",
+    edit_subject: subjectMode || "inbox",
+    ...extra,
+  };
+}
+
+function postprocessSaveBody(extra = {}) {
+  return { stack, edit_subject: subjectMode || "inbox", ...extra };
 }
 
 function defaultTextStyle() {
@@ -314,9 +327,51 @@ function refreshActiveLayerRow() {
 
 function onPropsFormChange() {
   beginPropsHistoryBatch();
+  applyTransformLive({ previewMs: 32, bounds: true });
+}
+
+/** 将表单/按钮的变换写入 stack，并触发边界与预览刷新 */
+function applyTransformLive({ previewMs = 16, bounds = true } = {}) {
   applyPropsFromForm();
   refreshActiveLayerRow();
-  schedulePreview(220);
+  if (bounds) scheduleBoundsRefresh(0);
+  schedulePreview(previewMs);
+}
+
+function patchBoundsOffset(layerId, dx, dy) {
+  if (!dx && !dy) return;
+  for (const b of boundsData.layers || []) {
+    if (b.id !== layerId) continue;
+    b.x = (b.x ?? 0) + dx;
+    b.y = (b.y ?? 0) + dy;
+    if (b.corners?.length) {
+      b.corners = b.corners.map(([x, y]) => [x + dx, y + dy]);
+    }
+    if (b.pivot) {
+      b.pivot.x += dx;
+      b.pivot.y += dy;
+    }
+    break;
+  }
+  drawOverlay();
+}
+
+function scheduleBoundsRefresh(delay = 0) {
+  clearTimeout(boundsTimer);
+  boundsTimer = setTimeout(refreshBoundsOverlay, Math.max(0, delay));
+}
+
+async function refreshBoundsOverlay() {
+  applyPropsFromForm();
+  const reqId = ++boundsReq;
+  try {
+    await fetchBounds();
+    if (reqId !== boundsReq) return;
+    layoutPreview();
+    drawOverlay();
+  } catch {
+    /* ignore */
+  }
 }
 
 function applyPropsFromForm() {
@@ -332,7 +387,7 @@ function applyPropsFromForm() {
     const o = parseFloat(form.opacity.value);
     layer.opacity = Number.isFinite(o) ? Math.min(1, Math.max(0, o)) : 1;
   }
-  layer.transform = layer.transform || defaultTransform();
+  layer.transform = { ...defaultTransform(), ...(layer.transform || {}) };
   layer.transform.offset_x = parseFloat(form.offset_x.value) || 0;
   layer.transform.offset_y = parseFloat(form.offset_y.value) || 0;
   if (form.scale_slider) {
@@ -594,7 +649,6 @@ function bindRangeSync() {
     form.scale_pct.value = form.scale_slider.value;
     const tag = $("#scale-tag");
     if (tag) tag.textContent = `${form.scale_slider.value}%`;
-    schedulePreview(120);
   });
   form.scale_pct?.addEventListener("input", () => {
     let v = parseInt(form.scale_pct.value, 10) || 100;
@@ -602,24 +656,20 @@ function bindRangeSync() {
     form.scale_slider.value = Math.min(300, v);
     const tag = $("#scale-tag");
     if (tag) tag.textContent = `${v}%`;
-    schedulePreview(120);
   });
   form.opacity_slider?.addEventListener("input", () => {
     const pct = Math.min(100, Math.max(0, parseInt(form.opacity_slider.value, 10) || 0));
     form.opacity.value = pct === 100 ? 1 : pct / 100;
-    schedulePreview(120);
   });
   form.opacity?.addEventListener("input", () => {
     const o = parseFloat(form.opacity.value);
     const pct = Number.isFinite(o) ? Math.round(Math.min(1, Math.max(0, o)) * 100) : 100;
     if (form.opacity_slider) form.opacity_slider.value = pct;
-    schedulePreview(120);
   });
   form.rotation_slider?.addEventListener("input", () => {
     form.rotation.value = form.rotation_slider.value;
     const rotTag = $("#rotation-tag");
     if (rotTag) rotTag.textContent = `${form.rotation_slider.value}°`;
-    schedulePreview(120);
   });
   form.rotation?.addEventListener("input", () => {
     let v = parseInt(form.rotation.value, 10) || 0;
@@ -628,15 +678,12 @@ function bindRangeSync() {
     if (form.rotation_slider) form.rotation_slider.value = v;
     const rotTag = $("#rotation-tag");
     if (rotTag) rotTag.textContent = `${v}°`;
-    schedulePreview(120);
   });
   form.pivot_x_pct?.addEventListener("input", () => {
     syncPivotGrid(parseFloat(form.pivot_x_pct.value) || 0, parseFloat(form.pivot_y_pct?.value) || 50);
-    schedulePreview(120);
   });
   form.pivot_y_pct?.addEventListener("input", () => {
     syncPivotGrid(parseFloat(form.pivot_x_pct?.value) || 50, parseFloat(form.pivot_y_pct.value) || 0);
-    schedulePreview(120);
   });
 }
 
@@ -645,21 +692,21 @@ function bindTransformControls() {
     const layer = selectedLayer();
     if (!layer) return;
     await pushHistoryBefore({ includeImages: false });
-    layer.transform = layer.transform || defaultTransform();
+    layer.transform = { ...defaultTransform(), ...(layer.transform || {}) };
     layer.transform.flip_h = !layer.transform.flip_h;
     syncFlipButtons(layer.transform);
     fillProps();
-    schedulePreview();
+    applyTransformLive({ previewMs: 0, bounds: true });
   });
   $("#pp-flip-v")?.addEventListener("click", async () => {
     const layer = selectedLayer();
     if (!layer) return;
     await pushHistoryBefore({ includeImages: false });
-    layer.transform = layer.transform || defaultTransform();
+    layer.transform = { ...defaultTransform(), ...(layer.transform || {}) };
     layer.transform.flip_v = !layer.transform.flip_v;
     syncFlipButtons(layer.transform);
     fillProps();
-    schedulePreview();
+    applyTransformLive({ previewMs: 0, bounds: true });
   });
   $("#pp-rotation-reset")?.addEventListener("click", async () => {
     const layer = selectedLayer();
@@ -667,7 +714,7 @@ function bindTransformControls() {
     await pushHistoryBefore({ includeImages: false });
     layer.transform.rotation_deg = 0;
     fillProps();
-    schedulePreview();
+    applyTransformLive({ previewMs: 0, bounds: true });
   });
   $("#pp-pivot-grid")?.addEventListener("click", async (e) => {
     const btn = e.target.closest(".pp-pivot-cell");
@@ -680,7 +727,7 @@ function bindTransformControls() {
     layer.transform.pivot_x = x;
     layer.transform.pivot_y = y;
     fillProps();
-    schedulePreview();
+    applyTransformLive({ previewMs: 0, bounds: true });
   });
 }
 
@@ -786,9 +833,9 @@ async function browseImageSource() {
   schedulePreview();
 }
 
-function schedulePreview(delay = 180) {
+function schedulePreview(delay = 48) {
   clearTimeout(previewTimer);
-  previewTimer = setTimeout(refreshPreview, delay);
+  previewTimer = setTimeout(refreshPreview, Math.max(0, delay));
 }
 
 function revokePreviewBlob() {
@@ -876,13 +923,12 @@ async function fetchBounds() {
 }
 
 async function refreshPreview() {
-  if (previewBusy) {
-    previewQueued = true;
-    return;
-  }
-  previewBusy = true;
+  clearTimeout(previewTimer);
   applyPropsFromForm();
   const reqId = ++previewReq;
+  if (previewAbort) previewAbort.abort();
+  previewAbort = new AbortController();
+  const { signal } = previewAbort;
   showPreviewLoading(t("pp.rendering"));
   setStatus(t("pp.rendering"));
   try {
@@ -890,8 +936,9 @@ async function refreshPreview() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(previewBody()),
+      signal,
     });
-    if (reqId !== previewReq) return;
+    if (signal.aborted || reqId !== previewReq) return;
 
     if (!res.ok) {
       showPreviewEmpty(t("pp.noPreviewFile"));
@@ -899,28 +946,26 @@ async function refreshPreview() {
       return;
     }
     const blob = await res.blob();
-    if (reqId !== previewReq) return;
+    if (signal.aborted || reqId !== previewReq) return;
 
     const ok = await setPreviewBlob(blob);
-    if (reqId !== previewReq) return;
+    if (signal.aborted || reqId !== previewReq) return;
     if (!ok) {
       setStatus(t("pp.noPreview"));
       return;
     }
+    boundsReq += 1;
     await fetchBounds();
+    if (signal.aborted || reqId !== previewReq) return;
     layoutPreview();
     drawOverlay();
     setStatus(t("pp.ready"));
   } catch (err) {
-    if (reqId !== previewReq) return;
+    if (err?.name === "AbortError" || reqId !== previewReq) return;
     showPreviewEmpty(t("pp.noPreview"));
     setStatus(t("pp.previewFailed", { msg: err.message }));
   } finally {
-    previewBusy = false;
-    if (previewQueued) {
-      previewQueued = false;
-      schedulePreview(50);
-    }
+    if (reqId === previewReq) previewAbort = null;
   }
 }
 
@@ -1124,7 +1169,7 @@ async function confirmLayerSourceEdit(layer) {
   try {
     const info = await API.post(
       `/api/assets/${encodeURIComponent(assetId)}/postprocess/layer-write-info`,
-      { layer_id: layer.id, stack },
+      previewBody({ layer_id: layer.id }),
     );
     if (!info.touches_source) return true;
     const name = (info.path || "").split("/").pop() || layer.name;
@@ -1137,8 +1182,8 @@ async function confirmLayerSourceEdit(layer) {
 async function callLayerMatte(payload) {
   applyPropsFromForm();
   return API.post(`/api/assets/${encodeURIComponent(assetId)}/postprocess/layer-matte`, {
+    ...previewBody(),
     ...payload,
-    stack,
   });
 }
 
@@ -1314,7 +1359,9 @@ async function enterCropMode() {
   const layer = selectedLayer();
   if (!layer || layer.type !== "image" || !(layer.is_subject || layer.source === "$asset")) return;
   try {
-    const res = await fetch(`/api/assets/${encodeURIComponent(assetId)}/postprocess/subject-raw.png`);
+    const res = await fetch(
+      `/api/assets/${encodeURIComponent(assetId)}/postprocess/subject-raw.png?subject=${encodeURIComponent(subjectMode || "inbox")}`,
+    );
     if (!res.ok) throw new Error("无主体原图");
     const blob = await res.blob();
     cropRawImg = await createImageBitmap(blob);
@@ -1568,8 +1615,23 @@ function updateCropInfo() {
 async function commitCrop() {
   const layer = selectedLayer();
   if (layer && cropPreview) {
-    await pushHistoryBefore({ includeImages: false });
+    const bakeToMaster =
+      (subjectMode === "source" || subjectMode === "unity") &&
+      (layer.is_subject || layer.source === "$asset");
+    await pushHistoryBefore({ includeImages: bakeToMaster });
     layer.crop = clampCrop(cropPreview);
+    if (bakeToMaster) {
+      applyPropsFromForm();
+      try {
+        await API.post(
+          `/api/assets/${encodeURIComponent(assetId)}/postprocess/bake-subject-crop`,
+          previewBody(),
+        );
+        setStatus(t("pp.cropBakedToMaster"));
+      } catch (err) {
+        setStatus(err.message);
+      }
+    }
     fillProps();
     schedulePreview();
   }
@@ -1720,7 +1782,7 @@ function adjustTextFontSize(delta) {
   layer.text = layer.text || {};
   layer.text.font_size = Math.min(256, Math.max(8, (layer.text.font_size || 24) + delta));
   fillProps();
-  schedulePreview(80);
+  applyTransformLive({ previewMs: 16, bounds: true });
   return true;
 }
 
@@ -1758,7 +1820,7 @@ async function deleteLayer(opts = {}) {
 async function saveStack(btn) {
   await withBtnBusy(btn || $("#pp-save"), async () => {
     applyPropsFromForm();
-    await API.put(`/api/assets/${assetId}/postprocess`, { stack });
+    await API.put(`/api/assets/${assetId}/postprocess`, postprocessSaveBody());
     setStatus(t("pp.saved"));
   }).catch((err) => {
     if (err) setStatus(err.message);
@@ -1768,11 +1830,30 @@ async function saveStack(btn) {
 async function applyInbox(btn) {
   await withBtnBusy(btn || $("#pp-apply"), async () => {
     applyPropsFromForm();
-    await API.put(`/api/assets/${assetId}/postprocess`, { stack });
-    const r = await API.post(`/api/assets/${assetId}/postprocess/apply`, { stack });
-    await fetchBounds();
-    await refreshPreview();
-    setStatus(t("pp.writtenInbox", { file: r.path?.split("/").pop() || "inbox" }));
+    await API.put(`/api/assets/${assetId}/postprocess`, postprocessSaveBody());
+    const r = await API.post(`/api/assets/${encodeURIComponent(assetId)}/postprocess/apply`, previewBody());
+    try {
+      await fetchBounds();
+      await refreshPreview();
+    } catch {
+      /* 写入 inbox 已成功，预览刷新失败不影响结果 */
+    }
+    setStatus(
+      r.master_baked || r.source_baked
+        ? t("pp.writtenMasterAndInbox", {
+            master:
+              r.source_path?.split("/").pop() ||
+              r.unity_path?.split("/").pop() ||
+              "source",
+            inbox: r.path?.split("/").pop() || "inbox",
+          })
+        : t("pp.writtenInbox", { file: r.path?.split("/").pop() || "inbox" }),
+    );
+    try {
+      window.opener?.postMessage?.({ type: "postprocess-applied", assetId }, location.origin);
+    } catch {
+      /* ignore */
+    }
   }).catch((err) => {
     if (err) setStatus(err.message);
   });
@@ -1822,8 +1903,11 @@ async function exportUnityAndReturn() {
   await withBtnBusy(btn, async () => {
     applyPropsFromForm();
     setStatus(t("pp.exportSaving"));
-    await API.put(`/api/assets/${assetId}/postprocess`, { stack });
-    await API.post(`/api/assets/${assetId}/postprocess/apply`, { stack, export_unity: true });
+    await API.put(`/api/assets/${assetId}/postprocess`, postprocessSaveBody());
+    await API.post(`/api/assets/${encodeURIComponent(assetId)}/postprocess/apply`, {
+      ...previewBody(),
+      export_unity: true,
+    });
     location.href = `/?asset=${encodeURIComponent(assetId)}`;
   }).catch((err) => {
     if (err) setStatus(t("pp.exportFailed", { msg: err.message }));
@@ -1865,7 +1949,7 @@ async function resetTransform(full = false, partial = {}) {
     l.transform.pivot_y = 0.5;
   }
   fillProps();
-  schedulePreview();
+  applyTransformLive({ previewMs: 0, bounds: true });
 }
 
 async function clearLayerCrop() {
@@ -1874,7 +1958,7 @@ async function clearLayerCrop() {
   await pushHistoryBefore({ includeImages: false });
   delete l.crop;
   fillProps();
-  schedulePreview();
+  applyTransformLive({ previewMs: 32, bounds: true });
 }
 
 // ── 指针事件 ─────────────────────────────────────────────
@@ -1955,11 +2039,8 @@ function bindViewport() {
     drag.lastX = doc.x;
     drag.lastY = doc.y;
     fillProps();
-    fetchBounds().then(() => {
-      layoutPreview();
-      drawOverlay();
-    });
-    schedulePreview(120);
+    patchBoundsOffset(layer.id, dx, dy);
+    applyTransformLive({ previewMs: 16, bounds: false });
   });
 
   window.addEventListener("mouseup", () => {
@@ -2112,28 +2193,32 @@ function bindKeys() {
       beginPropsHistoryBatch();
       l.transform.offset_x -= step;
       fillProps();
-      schedulePreview(80);
+      patchBoundsOffset(l.id, -step, 0);
+      applyTransformLive({ previewMs: 16, bounds: false });
       e.preventDefault();
     } else if (e.key === "ArrowRight") {
       l.transform.offset_x += step;
       fillProps();
-      schedulePreview(80);
+      patchBoundsOffset(l.id, step, 0);
+      applyTransformLive({ previewMs: 16, bounds: false });
       e.preventDefault();
     } else if (e.key === "ArrowUp") {
       l.transform.offset_y -= step;
       fillProps();
-      schedulePreview(80);
+      patchBoundsOffset(l.id, 0, -step);
+      applyTransformLive({ previewMs: 16, bounds: false });
       e.preventDefault();
     } else if (e.key === "ArrowDown") {
       l.transform.offset_y += step;
       fillProps();
-      schedulePreview(80);
+      patchBoundsOffset(l.id, 0, step);
+      applyTransformLive({ previewMs: 16, bounds: false });
       e.preventDefault();
     } else if (e.key === "Home") {
       l.transform.offset_x = 0;
       l.transform.offset_y = 0;
       fillProps();
-      schedulePreview(80);
+      applyTransformLive({ previewMs: 16, bounds: true });
       e.preventDefault();
     } else if (e.key === "c" || e.key === "C") {
       enterCropMode();
@@ -2144,7 +2229,7 @@ function bindKeys() {
     } else if (e.key === "0" && mod) {
       l.transform.scale = 1;
       fillProps();
-      schedulePreview(80);
+      applyTransformLive({ previewMs: 16, bounds: true });
       e.preventDefault();
     } else if ((e.key === "[" || e.key === "【") && l.type === "text") {
       adjustTextFontSize(e.shiftKey ? -10 : -2);
@@ -2159,12 +2244,49 @@ function bindKeys() {
 function updatePostprocessMeta() {
   if (!assetInfo) return;
   const inboxName = assetPaths?.inbox?.split("/").pop() || "inbox";
+  const sourceName = assetPaths?.source?.split("/").pop() || "source";
+  const unityName = assetPaths?.unity?.split("/").pop() || "engine";
   $("#pp-title").textContent = t("pp.titleAsset", { name: assetInfo.filename });
-  $("#pp-meta").textContent = t("pp.meta", {
-    w: assetInfo.width,
-    h: assetInfo.height,
-    inbox: inboxName,
-  });
+  let metaKey = "pp.meta";
+  let metaArgs = { w: assetInfo.width, h: assetInfo.height, inbox: inboxName };
+  if (subjectMode === "source") {
+    metaKey = "pp.metaSourceEdit";
+    metaArgs = { w: assetInfo.width, h: assetInfo.height, source: sourceName };
+  } else if (subjectMode === "unity") {
+    metaKey = "pp.metaUnityEdit";
+    metaArgs = { w: assetInfo.width, h: assetInfo.height, unity: unityName };
+  }
+  $("#pp-meta").textContent = t(metaKey, metaArgs);
+  updateMasterEditWarning();
+  updatePostprocessActions();
+}
+
+function updatePostprocessActions() {
+  const applyBtn = $("#pp-apply");
+  if (applyBtn) {
+    let key = "pp.applyInbox";
+    if (subjectMode === "source") key = "pp.applySource";
+    else if (subjectMode === "unity") key = "pp.applyUnity";
+    applyBtn.textContent = t(key);
+  }
+  const restoreBtn = $("#pp-restore-source");
+  if (restoreBtn) {
+    restoreBtn.hidden = subjectMode === "source" || subjectMode === "unity";
+  }
+}
+
+function updateMasterEditWarning() {
+  const el = $("#pp-master-warn");
+  if (!el) return;
+  if (subjectMode === "source") {
+    el.textContent = t("pp.sourceEditWarning");
+    el.hidden = false;
+  } else if (subjectMode === "unity") {
+    el.textContent = t("pp.unityEditWarning");
+    el.hidden = false;
+  } else {
+    el.hidden = true;
+  }
 }
 
 async function bootstrap() {
