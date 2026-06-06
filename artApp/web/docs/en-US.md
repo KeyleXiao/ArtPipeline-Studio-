@@ -4,7 +4,7 @@
 
 ## Introduction
 
-ArtPipeline Studio is a web-based art pipeline for game assets. It connects **ComfyUI generation → source originals → inbox editing → game engine export**. Features include batch generation, layer post-processing, AI prompt assistant, and configuration management.
+ArtPipeline Studio is a web-based art pipeline for game assets. It connects **ComfyUI / cloud API generation → source originals → inbox editing → game engine export**. Features include batch generation, layer post-processing, AI prompt assistant, and configuration management.
 
 ## Work Environment
 
@@ -12,7 +12,8 @@ ArtPipeline Studio is a web-based art pipeline for game assets. It connects **Co
 
 | Component | Description |
 |-----------|-------------|
-| **ComfyUI** | Local or LAN Stable Diffusion service; the tool submits workflows via HTTP |
+| **ComfyUI** | Local Stable Diffusion (primary); workflows via HTTP API |
+| **Cloud APIs** (optional) | Stability, Alibaba Wan, Tencent Hunyuan, Volcengine Jimeng |
 | **ArtPipeline folder** | Holds source/inbox, workflow JSON, post-process overlays, and config |
 | **Game engine project** | Usually Unity; export target is set under **Settings** |
 
@@ -109,17 +110,32 @@ Recent lines are restored from the log file after restart. **Open folder** revea
 
 Modes: write prompts, refine, workflow, free chat. Configure DeepSeek API Key in **Settings**. AI uses asset category, size, and existing prompts; some modes write back to config.
 
-### Checkpoint configuration
+### Checkpoint / model configuration
 
-Models are configured at **category → asset** level. **Settings** only needs **ComfyUI URL** to list checkpoints:
+Generation models are set at **category → asset** level:
 
 | Location | Purpose | When empty |
 |----------|---------|------------|
-| **Category** | Default checkpoint for assets in category | Not set — generation will prompt you |
+| **Category** | Default model for assets in category | Not set — generation will prompt you |
 | **Basic info** | Per-asset override | Inherit from category |
-| **Settings** | ComfyUI URL, sampler params, etc. | — |
+| **Settings** | ComfyUI URL, sampler params, cloud API keys, log dir, etc. | — |
 
-When creating a category, pick a checkpoint. If ComfyUI is offline, type a known model filename.
+The dropdown lists **local ComfyUI checkpoints** and **cloud models** (`cloud:` prefix). Cloud models work without ComfyUI online.
+
+See [cloud generation](../../../docs/cloud-generation.md) (Chinese; English summary in `tools/cloud/registry.json`).
+
+### Unified generation modes
+
+| Mode | Description |
+|------|-------------|
+| **Text-to-Image** | Text only; no reference |
+| **Image-to-Image** | Reference image + strength (denoise) |
+| **Image Editing** | Edit from source original (ComfyUI uses `redraw` internally) |
+
+- **ComfyUI**: four-segment prompts + workflow JSON on **Prompts & Workflow**
+- **Cloud**: single `cloud_prompt` on **Cloud Prompts**; parallel async jobs
+
+Platforms: **Stability AI**, **Alibaba Wan**, **Tencent Hunyuan**, **Volcengine Jimeng**. Registry: `tools/cloud/registry.json`.
 
 ### Post-process editor
 
@@ -140,9 +156,10 @@ Each category has its own paths, checkpoint, and shared prompt prefixes. Use sep
 
 ### 3. Pre-flight checks
 
-- ComfyUI pill shows **online**
-- **Category or asset has a checkpoint configured**
-- Assets enabled and workflow JSON valid
+- **ComfyUI** (local): pill **online**; checkpoint and workflow configured
+- **Cloud**: API keys in **Settings**
+- Category or asset has a **generation model**
+- Assets enabled; ComfyUI assets need valid workflow JSON
 - Prompts and dimensions match category rules
 
 ### 4. Suggested batch workflow
@@ -165,8 +182,8 @@ Each category has its own paths, checkpoint, and shared prompt prefixes. Use sep
 |-------|-----|
 | Empty preview | Ensure source/inbox exists; refresh status |
 | Engine out of date (red U) | Re-export after inbox/post-process changes |
-| ComfyUI offline | Check URL, firewall, ComfyUI process |
-| No checkpoint configured | Set model under **Category**, or per asset under **Basic info** |
+| ComfyUI offline | Check URL and process; or use a cloud model |
+| No model / cloud key | Set model under **Category** or **Basic info**; cloud keys in **Settings** |
 | Export 405 | Restart `run_dev.py` |
 
 ---

@@ -105,6 +105,7 @@ class ComfyUiClient:
 
         deadline = time.time() + timeout_s
         start = time.time()
+        none_streak = 0
         try:
             while time.time() < deadline:
                 if cancel_event and cancel_event.is_set():
@@ -113,6 +114,12 @@ class ComfyUiClient:
 
                 history = self._get_json(f"/history/{prompt_id}")
                 if prompt_id in history:
+                    entry = history[prompt_id]
+                    status = entry.get("status") or {}
+                    if status.get("status_str") == "error":
+                        messages = status.get("messages") or []
+                        detail = messages[-1] if messages else status
+                        raise ComfyUiError(f"ComfyUI 执行失败: {detail}")
                     if progress_cb:
                         progress_cb(
                             {
@@ -122,18 +129,20 @@ class ComfyUiClient:
                                 "message": "解码保存中…",
                             }
                         )
-                    return history[prompt_id]
+                    return entry
 
                 if progress_cb:
                     elapsed = int(time.time() - start)
                     q = self.get_queue()
                     state, pos = self._prompt_queue_state(prompt_id, q)
                     if state == "running":
+                        none_streak = 0
                         msg = f"ComfyUI 生成中 · {elapsed}s"
                         if elapsed >= 60:
                             msg += "（首次加载大模型可能较慢）"
                         progress_cb({"kind": "running", "message": msg, "elapsed": elapsed})
                     elif state == "pending":
+                        none_streak = 0
                         progress_cb(
                             {
                                 "kind": "queue",
@@ -143,13 +152,19 @@ class ComfyUiClient:
                             }
                         )
                     else:
+                        none_streak += 1
                         progress_cb(
                             {
                                 "kind": "running",
-                                "message": f"收尾中 · {elapsed}s",
+                                "message": f"等待 ComfyUI 响应 · {elapsed}s",
                                 "elapsed": elapsed,
                             }
                         )
+                        if none_streak >= 24:
+                            raise ComfyUiError(
+                                "ComfyUI 任务未进入队列或已异常结束，"
+                                "请检查工作流 JSON 与 ComfyUI 控制台日志"
+                            )
                 time.sleep(poll_s)
             raise ComfyUiError(f"等待超时 ({timeout_s}s): {prompt_id}")
         finally:

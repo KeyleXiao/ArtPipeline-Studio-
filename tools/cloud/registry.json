@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "description": "云生图模型注册表。checkpoint 值以 cloud: 前缀写入 pipeline_config；ComfyUI 本地模型不在此列表。",
+  "gen_modes": {
+    "text_to_image": {
+      "label_zh": "文生图",
+      "label_en": "Text-to-Image",
+      "desc_zh": "仅根据文字描述生成图像，无需参考图。",
+      "desc_en": "Generate from text only; no reference image.",
+      "asset_field": "cloud_gen_mode"
+    },
+    "image_to_image": {
+      "label_zh": "图生图",
+      "label_en": "Image-to-Image",
+      "desc_zh": "以参考图为底，按描述与参考强度重绘。",
+      "desc_en": "Use a reference image; redraw from your prompt with adjustable strength.",
+      "asset_field": "cloud_gen_mode"
+    },
+    "image_edit": {
+      "label_zh": "图像编辑",
+      "label_en": "Image Editing",
+      "desc_zh": "以已有图像为底（默认 source 原图），按描述做局部或整体修改。",
+      "desc_en": "Edit an existing image (default: source) from your prompt.",
+      "asset_field": "cloud_gen_mode"
+    }
+  },
+  "comfyui_gen_mode_ui": {
+    "txt2img": { "label_zh": "文生图", "label_en": "Text-to-Image", "maps_to": "text_to_image" },
+    "img2img": { "label_zh": "图生图", "label_en": "Image-to-Image", "maps_to": "image_to_image" },
+    "redraw": { "label_zh": "图像编辑", "label_en": "Image Editing", "maps_to": "image_edit" }
+  },
+  "providers": {
+    "stability": {
+      "label_zh": "Stability AI",
+      "label_en": "Stability AI",
+      "region": "global",
+      "key_fields": ["stability"],
+      "default_max_parallel": 3,
+      "docs_url": "https://platform.stability.ai/docs"
+    },
+    "dashscope": {
+      "label_zh": "阿里云万相",
+      "label_en": "Alibaba Wan",
+      "region": "cn",
+      "key_fields": ["dashscope"],
+      "default_max_parallel": 3,
+      "docs_url": "https://help.aliyun.com/zh/model-studio/text-to-image"
+    },
+    "tencent": {
+      "label_zh": "腾讯混元",
+      "label_en": "Tencent Hunyuan",
+      "region": "cn",
+      "key_fields": ["tencent_secret_id", "tencent_secret_key"],
+      "default_max_parallel": 1,
+      "docs_url": "https://cloud.tencent.com/document/product/1668"
+    },
+    "volcengine": {
+      "label_zh": "火山即梦",
+      "label_en": "Volcengine Jimeng",
+      "region": "cn",
+      "key_fields": ["volcengine"],
+      "default_max_parallel": 3,
+      "docs_url": "https://www.volcengine.com/docs/82379/1541523"
+    }
+  },
+  "models": [
+    {
+      "id": "cloud:stability/core",
+      "provider": "stability",
+      "label_zh": "Stability · Core",
+      "label_en": "Stability · Core",
+      "summary_zh": "Stable Image 通用文生图 / 图生图 / 编辑",
+      "summary_en": "Stable Image core generate & edit",
+      "api_model": "stable-image-generate-core",
+      "modes": {
+        "text_to_image": { "endpoint": "v2beta/stable-image/generate/core" },
+        "image_to_image": { "endpoint": "v2beta/stable-image/control/structure", "strength_param": "image_strength" },
+        "image_edit": { "endpoint": "v2beta/stable-image/edit/inpaint", "note": "或使用高 strength 的 image-to-image" }
+      }
+    },
+    {
+      "id": "cloud:stability/sd3",
+      "provider": "stability",
+      "label_zh": "Stability · SD3",
+      "label_en": "Stability · SD3",
+      "summary_zh": "SD3 高保真文生图",
+      "summary_en": "SD3 high-fidelity text-to-image",
+      "api_model": "sd3",
+      "modes": {
+        "text_to_image": { "endpoint": "v2beta/stable-image/generate/sd3" },
+        "image_to_image": { "endpoint": "v2beta/stable-image/control/structure" },
+        "image_edit": { "endpoint": "v2beta/stable-image/edit/inpaint" }
+      }
+    },
+    {
+      "id": "cloud:dashscope/wan2.6-t2i",
+      "provider": "dashscope",
+      "label_zh": "万相 · wan2.6",
+      "label_en": "Wan · wan2.6",
+      "summary_zh": "百炼万相 · 文生图 / 图生图 / 图像编辑",
+      "summary_en": "DashScope Wan text / image / edit",
+      "api_model": "wan2.6-t2i",
+      "modes": {
+        "text_to_image": { "endpoint": "aigc/image-generation/generation", "async": true },
+        "image_to_image": { "endpoint": "aigc/multimodal-generation/generation", "async": true },
+        "image_edit": { "endpoint": "aigc/image2image/image-synthesis", "api_model": "wanx2.1-imageedit", "async": true }
+      }
+    },
+    {
+      "id": "cloud:tencent/hunyuan-3.0",
+      "provider": "tencent",
+      "label_zh": "混元 · 3.0",
+      "label_en": "Hunyuan · 3.0",
+      "summary_zh": "混元生图 3.0 · 文生图 / 图生图 / 图像编辑",
+      "summary_en": "Hunyuan Image 3.0 generate & edit",
+      "api_model": "SubmitTextToImageJob",
+      "modes": {
+        "text_to_image": { "action": "SubmitTextToImageJob", "query": "QueryTextToImageJob" },
+        "image_to_image": { "action": "ImageToImage" },
+        "image_edit": { "action": "SubmitTextToImageJob", "requires_images": true }
+      }
+    },
+    {
+      "id": "cloud:volcengine/seedream-4",
+      "provider": "volcengine",
+      "label_zh": "即梦 · Seedream 4",
+      "label_en": "Jimeng · Seedream 4",
+      "summary_zh": "火山方舟 Seedream · 文生图 / 图生图 / 图像编辑",
+      "summary_en": "Volcengine Seedream generate & edit",
+      "api_model": "doubao-seedream-4-0",
+      "modes": {
+        "text_to_image": { "endpoint": "images/generations", "image_param": null },
+        "image_to_image": { "endpoint": "images/generations", "image_param": "image" },
+        "image_edit": { "endpoint": "images/generations", "image_param": "image", "edit_prompt": true }
+      }
+    }
+  ],
+  "defaults": {
+    "cloud_max_concurrent": 3,
+    "cloud_strength_default": 0.65,
+    "cloud_strength_min": 0.01,
+    "cloud_strength_max": 1.0
+  },
+  "asset_fields": {
+    "cloud_gen_mode": "text_to_image | image_to_image | image_edit",
+    "cloud_prompt": "云正向 prompt（单段）",
+    "cloud_negative": "云负向 prompt（可选）",
+    "cloud_strength": "参考强度，图生图 / 图像编辑时生效，默认 0.65"
+  }
+}

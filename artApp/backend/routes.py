@@ -30,6 +30,12 @@ router = APIRouter(prefix="/api")
 
 
 def _asset_dict(a: Any, *, full: bool = False) -> dict[str, Any]:
+    from cloud.registry import is_cloud_checkpoint
+
+    effective_ckpt = ""
+    if full:
+        config = get_config_manager()
+        effective_ckpt = config.checkpoint_for_asset(a)
     d = {
         "id": a.id,
         "filename": a.filename,
@@ -45,16 +51,25 @@ def _asset_dict(a: Any, *, full: bool = False) -> dict[str, Any]:
         "ref_image": getattr(a, "ref_image", ""),
         "ref_image_use_source": bool(getattr(a, "ref_image_use_source", False)),
         "img2img_denoise": getattr(a, "img2img_denoise", 0.65),
+        "cloud_gen_mode": getattr(a, "cloud_gen_mode", "text_to_image"),
+        "cloud_prompt": getattr(a, "cloud_prompt", ""),
+        "cloud_negative": getattr(a, "cloud_negative", ""),
+        "cloud_strength": getattr(a, "cloud_strength", 0.65),
     }
     if full:
         config = get_config_manager()
         src, _inbox, _unity = config.resolve_paths(a)
         d["source_path"] = str(src)
         d["checkpoint"] = getattr(a, "checkpoint", "") or ""
-        d["checkpoint_effective"] = config.checkpoint_for_asset(a)
+        d["checkpoint_effective"] = effective_ckpt or config.checkpoint_for_asset(a)
+        d["is_cloud_model"] = is_cloud_checkpoint(d["checkpoint_effective"])
         d["category_checkpoint"] = config.checkpoint_for_category(a.category)
         d["positive"] = a.positive
         d["negative"] = a.negative
+        d["positive_prefix"] = getattr(a, "positive_prefix", "")
+        d["positive_subject"] = getattr(a, "positive_subject", "")
+        d["positive_scene"] = getattr(a, "positive_scene", "")
+        d["positive_light"] = getattr(a, "positive_light", "")
         d["positive_g"] = a.positive_g
         d["positive_l"] = a.positive_l
         d["workflow"] = a.workflow
@@ -144,12 +159,20 @@ class AssetUpdateBody(BaseModel):
     checkpoint: str | None = None
     positive: str | None = None
     negative: str | None = None
+    positive_prefix: str | None = None
+    positive_subject: str | None = None
+    positive_scene: str | None = None
+    positive_light: str | None = None
     positive_g: str | None = None
     positive_l: str | None = None
     gen_mode: str | None = None
     ref_image: str | None = None
     ref_image_use_source: bool | None = None
     img2img_denoise: float | None = None
+    cloud_gen_mode: str | None = None
+    cloud_prompt: str | None = None
+    cloud_negative: str | None = None
+    cloud_strength: float | None = None
 
 
 class LayerMatteBody(BaseModel):
@@ -210,6 +233,7 @@ class NewAssetBody(BaseModel):
 
 class AssetRenameBody(BaseModel):
     filename: str
+    overwrite: bool = False
 
 
 class MoveAssetCategoryBody(BaseModel):
@@ -334,6 +358,64 @@ def list_checkpoints() -> dict[str, Any]:
         return {"checkpoints": [], "offline": True, "message": str(exc)}
 
 
+@router.get("/cloud/models")
+def cloud_models() -> dict[str, Any]:
+    from cloud.registry import cloud_gen_modes, list_cloud_models, load_registry
+
+    reg = load_registry()
+    return {
+        "models": list_cloud_models(),
+        "gen_modes": cloud_gen_modes(),
+        "defaults": reg.get("defaults") or {},
+    }
+
+
+@router.get("/generation/models")
+def generation_models() -> dict[str, Any]:
+    from cloud.registry import list_cloud_models
+
+    local = list_checkpoints()
+    cloud = list_cloud_models()
+    return {
+        "local": local,
+        "cloud": {"models": cloud},
+    }
+
+
+@router.post("/cloud/verify")
+def cloud_verify(body: dict[str, Any]) -> dict[str, Any]:
+    from cloud.http_util import cloud_keys_from_defaults
+    from cloud.verify import verify_cloud_provider
+
+    provider = str(body.get("provider") or "").strip().lower()
+    if not provider:
+        raise HTTPException(400, "provider 为空")
+
+    config = get_config_manager()
+    d = config.defaults
+    incoming = body.get("keys") if isinstance(body.get("keys"), dict) else {}
+
+    if provider == "deepseek":
+        from ai_assistant import verify_deepseek
+
+        api_key = str(
+            body.get("api_key") or incoming.get("deepseek_api_key") or d.get("deepseek_api_key") or ""
+        ).strip()
+        model = str(body.get("model") or incoming.get("deepseek_model") or d.get("deepseek_model") or "")
+        ok, message = verify_deepseek(api_key, model)
+        return {"ok": ok, "message": message, "provider": "deepseek"}
+
+    merged = cloud_keys_from_defaults(d)
+    for k, v in incoming.items():
+        if v is not None and str(v).strip():
+            merged[str(k)] = str(v).strip()
+
+    result = verify_cloud_provider(provider, merged)
+    if not result.get("ok"):
+        return result
+    return result
+
+
 # ── Jobs ─────────────────────────────────────────────
 
 
@@ -352,26 +434,32 @@ def job_cancel() -> dict[str, str]:
 def generate_assets(body: GenerateBody) -> dict[str, Any]:
     if not body.asset_ids:
         raise HTTPException(400, "asset_ids 为空")
-    if pipeline_runner.is_busy():
-        raise HTTPException(409, "任务进行中")
     try:
-        run_id = pipeline_runner.generate_batch(body.asset_ids, export_after=body.export_after)
+        run_id, queue_position = pipeline_runner.generate_batch(
+            body.asset_ids, export_after=body.export_after
+        )
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return {"status": "started", "run_id": run_id}
+    return {
+        "status": "started" if queue_position <= 1 else "queued",
+        "run_id": run_id,
+        "queue_position": queue_position,
+    }
 
 
 @router.post("/export")
 def export_assets(body: GenerateBody) -> dict[str, Any]:
     if not body.asset_ids:
         raise HTTPException(400, "asset_ids 为空")
-    if pipeline_runner.is_busy():
-        raise HTTPException(409, "任务进行中")
     try:
-        run_id = pipeline_runner.export_batch(body.asset_ids)
+        run_id, queue_position = pipeline_runner.export_batch(body.asset_ids)
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return {"status": "started", "run_id": run_id}
+    return {
+        "status": "started" if queue_position <= 1 else "queued",
+        "run_id": run_id,
+        "queue_position": queue_position,
+    }
 
 
 @router.post("/workflows/init")
@@ -381,6 +469,40 @@ def init_workflows() -> dict[str, Any]:
     n = PipelineCore(get_config_manager()).init_asset_workflows_from_default()
     log_bus.log(f"已为 {n} 个资源创建工作流 JSON", kind="系统")
     return {"created": n}
+
+
+@router.get("/workflows/templates")
+def list_workflow_templates(
+    category: str = Query(""),
+    gen_mode: str = Query("txt2img"),
+) -> dict[str, Any]:
+    from workflow_presets import list_presets
+
+    presets = list_presets(category=category, gen_mode=gen_mode)
+    return {"presets": presets}
+
+
+@router.get("/workflows/templates/{preset_id}")
+def get_workflow_template(preset_id: str) -> dict[str, str]:
+    from paths import WORKFLOWS_DIR
+    from workflow_presets import preset_by_id
+
+    preset = preset_by_id(preset_id)
+    if not preset:
+        raise HTTPException(404, f"未知工作流预设: {preset_id}")
+    p = WORKFLOWS_DIR / Path(str(preset["file"])).name
+    if not p.is_file():
+        raise HTTPException(404, f"模板文件不存在: {preset['file']}")
+    return {
+        "id": preset["id"],
+        "name": preset["name"],
+        "mode": str(preset.get("mode", "")),
+        "description": str(preset.get("description", "")),
+        "how_it_works": str(preset.get("how_it_works", "")),
+        "recommended_for": str(preset.get("recommended_for", "")),
+        "file": str(preset["file"]),
+        "text": p.read_text(encoding="utf-8"),
+    }
 
 
 # ── Logs ─────────────────────────────────────────────
@@ -444,6 +566,8 @@ def get_settings() -> dict[str, Any]:
         "checkpoint": str(d.get("checkpoint", "")),
         "deepseek_api_key": str(d.get("deepseek_api_key", "")),
         "deepseek_model": str(d.get("deepseek_model", "")),
+        "cloud_max_concurrent": int(d.get("cloud_max_concurrent") or 3),
+        "cloud_api_keys": dict(d.get("cloud_api_keys") or {}),
     }
 
 
@@ -491,6 +615,13 @@ def put_settings(body: dict[str, Any]) -> dict[str, str]:
         if m not in SUPPORTED_MODELS:
             raise HTTPException(400, f"不支持的模型: {m}")
         d["deepseek_model"] = m
+    if "cloud_max_concurrent" in body:
+        d["cloud_max_concurrent"] = max(1, min(16, int(body["cloud_max_concurrent"])))
+    if "cloud_api_keys" in body and isinstance(body["cloud_api_keys"], dict):
+        keys = dict(d.get("cloud_api_keys") or {})
+        for k, v in body["cloud_api_keys"].items():
+            keys[str(k)] = str(v).strip()
+        d["cloud_api_keys"] = keys
     config.save()
     reload_config_manager()
     sync_log_bus_from_config()
@@ -641,6 +772,14 @@ def update_asset(asset_id: str, body: AssetUpdateBody) -> dict[str, Any]:
         asset.positive = body.positive
     if body.negative is not None:
         asset.negative = body.negative
+    if body.positive_prefix is not None:
+        asset.positive_prefix = body.positive_prefix
+    if body.positive_subject is not None:
+        asset.positive_subject = body.positive_subject
+    if body.positive_scene is not None:
+        asset.positive_scene = body.positive_scene
+    if body.positive_light is not None:
+        asset.positive_light = body.positive_light
     if body.positive_g is not None:
         asset.positive_g = body.positive_g
     if body.positive_l is not None:
@@ -662,6 +801,21 @@ def update_asset(asset_id: str, body: AssetUpdateBody) -> dict[str, Any]:
         if d < 0.01 or d > 1.0:
             raise HTTPException(400, "img2img_denoise 须在 0.01–1.0")
         asset.img2img_denoise = d
+    if body.cloud_gen_mode is not None:
+        mode = body.cloud_gen_mode.strip()
+        if mode not in ("text_to_image", "image_to_image", "image_edit"):
+            raise HTTPException(400, "cloud_gen_mode 无效")
+        asset.cloud_gen_mode = mode
+    if body.cloud_prompt is not None:
+        asset.cloud_prompt = body.cloud_prompt
+    if body.cloud_negative is not None:
+        asset.cloud_negative = body.cloud_negative
+    if body.cloud_strength is not None:
+        s = float(body.cloud_strength)
+        if s < 0.01 or s > 1.0:
+            raise HTTPException(400, "cloud_strength 须在 0.01–1.0")
+        asset.cloud_strength = s
+    config.sync_asset_prompt_fields(asset)
     if asset.width < 32 or asset.height < 32 or asset.width > 4096 or asset.height > 4096:
         raise HTTPException(400, "尺寸须在 32–4096")
     try:
@@ -675,22 +829,43 @@ def update_asset(asset_id: str, body: AssetUpdateBody) -> dict[str, Any]:
 
 @router.post("/assets/{asset_id}/rename")
 def rename_asset(asset_id: str, body: AssetRenameBody) -> dict[str, Any]:
+    from config_manager import RenameFileConflictError
+
     config = get_config_manager()
     asset = config.asset_by_id(asset_id)
     if not asset:
         raise HTTPException(404, f"资源不存在: {asset_id}")
     try:
-        renamed = config.rename_asset_files(asset, body.filename)
+        renamed = config.rename_asset_files(
+            asset, body.filename, overwrite=body.overwrite
+        )
+    except RenameFileConflictError as exc:
+        raise HTTPException(
+            409,
+            detail={
+                "code": "rename_file_conflict",
+                "message": str(exc),
+                "filename": exc.filename,
+                "conflicts": exc.conflicts,
+                "can_overwrite": True,
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     config._update_asset_dict(asset)
     config.save()
     reload_config_manager()
+    note = "（覆盖残留文件）" if body.overwrite else ""
     log_bus.log(
-        f"已重命名资源: {asset.id} → {asset.filename}（{len(renamed)} 个文件）",
+        f"已重命名资源: {asset.id} → {asset.filename}（{len(renamed)} 个文件）{note}",
         kind="操作",
     )
-    return {"asset": _asset_dict(asset, full=True), "renamed": renamed, "filename": asset.filename}
+    return {
+        "asset": _asset_dict(asset, full=True),
+        "renamed": renamed,
+        "filename": asset.filename,
+        "overwritten": body.overwrite,
+    }
 
 
 @router.get("/assets/{asset_id}/move-preview")
@@ -908,6 +1083,10 @@ def duplicate_asset(asset_id: str) -> dict[str, Any]:
     clone.img2img_denoise = getattr(asset, "img2img_denoise", 0.65)
     clone.positive_g = asset.positive_g
     clone.positive_l = asset.positive_l
+    clone.positive_prefix = getattr(asset, "positive_prefix", "")
+    clone.positive_subject = getattr(asset, "positive_subject", "")
+    clone.positive_scene = getattr(asset, "positive_scene", "")
+    clone.positive_light = getattr(asset, "positive_light", "")
     clone.remove_bg_mode = asset.remove_bg_mode
     wf_src = config.workflow_file_for_asset(asset)
     wf_dst = WORKFLOWS_DIR / "assets" / f"{clone.id}.json"
@@ -1065,26 +1244,29 @@ def validate_workflow(asset_id: str, body: dict[str, Any]) -> dict[str, str]:
 
 @router.get("/assets/{asset_id}/workflow/default")
 def default_workflow(asset_id: str) -> dict[str, str]:
-    from config_manager import GEN_MODES_IMG2IMG, DEFAULT_IMG2IMG_WORKFLOW, effective_gen_mode
+    from config_manager import GEN_MODES_IMG2IMG, effective_gen_mode
     from paths import WORKFLOWS_DIR
+    from workflow_presets import preset_by_id, suggest_preset_id
 
     config = get_config_manager()
     asset = config.asset_by_id(asset_id)
     if not asset:
         raise HTTPException(404, f"资源不存在: {asset_id}")
     gen_mode = effective_gen_mode(asset)
-    if gen_mode in GEN_MODES_IMG2IMG:
-        rel = DEFAULT_IMG2IMG_WORKFLOW
-    else:
-        rel = "workflows/_default_sdxl_api.json"
+    preset_id = suggest_preset_id(category=asset.category, gen_mode=gen_mode)
+    preset = preset_by_id(preset_id)
+    rel = str(preset["file"]) if preset else "workflows/_default_sdxl_api.json"
+    if gen_mode not in GEN_MODES_IMG2IMG:
         cat = config.category_by_id(asset.category)
         if cat and cat.default_workflow:
             rel = cat.default_workflow
     p = WORKFLOWS_DIR / Path(rel).name
     if not p.is_file():
-        p = WORKFLOWS_DIR / ("_default_sdxl_img2img_api.json" if gen_mode in GEN_MODES_IMG2IMG else "_default_sdxl_api.json")
+        p = WORKFLOWS_DIR / (
+            "_default_sdxl_img2img_api.json" if gen_mode in GEN_MODES_IMG2IMG else "_default_sdxl_api.json"
+        )
     text = p.read_text(encoding="utf-8") if p.is_file() else ""
-    return {"text": text}
+    return {"text": text, "preset_id": preset_id}
 
 
 # ── Postprocess ─────────────────────────────────────────────
@@ -1218,6 +1400,82 @@ def _master_target_path(
     return None
 
 
+def _validate_stack_canvas_size(stack: Any) -> None:
+    cw, ch = int(stack.canvas_width), int(stack.canvas_height)
+    if cw < 32 or ch < 32 or cw > 4096 or ch > 4096:
+        raise ValueError("画布尺寸须在 32–4096")
+
+
+def _stack_canvas_differs_from_asset(asset: Any, stack: Any) -> bool:
+    return int(stack.canvas_width) != int(asset.width) or int(stack.canvas_height) != int(
+        asset.height
+    )
+
+
+def _reset_subject_layer_after_master_write(stack: Any) -> None:
+    from postprocess.models import LayerTransform
+
+    subj = stack.subject_layer()
+    if not subj:
+        return
+    offset_x = subj.transform.offset_x
+    offset_y = subj.transform.offset_y
+    anchor = subj.transform.anchor
+    subj.crop = None
+    subj.transform = LayerTransform(
+        offset_x=offset_x,
+        offset_y=offset_y,
+        scale=1.0,
+        anchor=anchor,
+    )
+
+
+def _write_canvas_render_to_source(
+    config: Any,
+    asset: Any,
+    stack: Any,
+    resolver: Any,
+    subject_path: str | None,
+) -> bool:
+    """source 编辑：将整幅画布合成写入 source 原图（用于修改画布尺寸）。"""
+    from postprocess.engine import render_stack_to_png_bytes
+    from postprocess.matte import is_subject_source_edit_mode, sync_asset_source_to_inbox
+
+    if not is_subject_source_edit_mode(subject_path):
+        return False
+    target_info = _master_target_path(config, asset, subject_path)
+    if not target_info or target_info[0] != "source":
+        return False
+    _target_mode, target = target_info
+    try:
+        data = render_stack_to_png_bytes(stack, resolver)
+    except Exception as exc:
+        raise ValueError(f"合成 source 失败: {exc}") from exc
+    if not data:
+        raise ValueError("合成 source 结果为空")
+    _write_bytes_atomic(target, data)
+    _reset_subject_layer_after_master_write(stack)
+    src, inbox, _unity = config.resolve_paths(asset)
+    if sync_asset_source_to_inbox(src, inbox):
+        log_bus.log(f"画布写入 source 后已同步 inbox: {asset.filename}", kind="操作")
+    log_bus.log(
+        f"已按画布尺寸写入 source: {asset.filename}（{stack.canvas_width}×{stack.canvas_height}）",
+        kind="操作",
+    )
+    return True
+
+
+def _sync_asset_dimensions_from_stack(config: Any, asset: Any, stack: Any) -> bool:
+    _validate_stack_canvas_size(stack)
+    cw, ch = int(stack.canvas_width), int(stack.canvas_height)
+    if int(asset.width) == cw and int(asset.height) == ch:
+        return False
+    asset.width = cw
+    asset.height = ch
+    config.update_asset(asset)
+    return True
+
+
 def _bake_subject_crop_to_master(
     config: Any,
     asset: Any,
@@ -1283,16 +1541,7 @@ def _bake_subject_transform_to_master(
     buf = io.BytesIO()
     baked.save(buf, format="PNG", optimize=True)
     _write_bytes_atomic(target, buf.getvalue())
-    offset_x = subj.transform.offset_x
-    offset_y = subj.transform.offset_y
-    anchor = subj.transform.anchor
-    subj.crop = None
-    subj.transform = LayerTransform(
-        offset_x=offset_x,
-        offset_y=offset_y,
-        scale=1.0,
-        anchor=anchor,
-    )
+    _reset_subject_layer_after_master_write(stack)
     label = "source" if mode == "source" else "unity"
     log_bus.log(f"已烘焙变换到 {label}: {asset.filename}", kind="操作")
     return True
@@ -1347,6 +1596,10 @@ def put_postprocess(asset_id: str, body: dict[str, Any]) -> dict[str, str]:
     stack = stack_from_dict(body.get("stack"))
     if not stack:
         raise HTTPException(400, "无效 stack")
+    try:
+        _validate_stack_canvas_size(stack)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     edit_subject = body.get("edit_subject")
     if edit_subject is not None:
         stack.edit_subject = normalize_edit_subject(str(edit_subject))
@@ -1756,11 +2009,25 @@ def apply_postprocess(
     from postprocess.matte import is_subject_master_edit_mode, normalize_edit_subject
 
     baked_master = False
-    if is_subject_master_edit_mode(body.get("subject_path")):
-        baked_master = _bake_subject_transform_to_master(
-            config, asset, stack, resolver, body.get("subject_path")
-        )
-        resolver = _pp_resolver(config, asset, body.get("subject_path"))
+    size_synced = False
+    canvas_written = False
+    try:
+        if is_subject_master_edit_mode(body.get("subject_path")):
+            if _stack_canvas_differs_from_asset(asset, stack):
+                _validate_stack_canvas_size(stack)
+                canvas_written = _write_canvas_render_to_source(
+                    config, asset, stack, resolver, body.get("subject_path")
+                )
+                resolver = _pp_resolver(config, asset, body.get("subject_path"))
+                size_synced = _sync_asset_dimensions_from_stack(config, asset, stack)
+                baked_master = canvas_written
+            else:
+                baked_master = _bake_subject_transform_to_master(
+                    config, asset, stack, resolver, body.get("subject_path")
+                )
+                resolver = _pp_resolver(config, asset, body.get("subject_path"))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     try:
         data = render_stack_to_png_bytes(stack, resolver)
     except Exception as exc:
@@ -1786,13 +2053,22 @@ def apply_postprocess(
     config.set_postprocess_stack(asset_id, stack)
     reload_config_manager()
     mode = normalize_edit_subject(body.get("subject_path"))
-    if baked_master and mode == "source":
+    if canvas_written and mode == "source":
+        log_bus.log(
+            f"后处理已写入 source（画布 {stack.canvas_width}×{stack.canvas_height}）并更新 inbox: {asset.filename}",
+            kind="操作",
+        )
+    elif baked_master and mode == "source":
         log_bus.log(f"后处理已写入 source 并同步 inbox: {asset.filename}", kind="操作")
     elif baked_master and mode == "unity":
         log_bus.log(f"后处理已写入游戏引擎文件并同步 inbox: {asset.filename}", kind="操作")
     else:
         log_bus.log(f"后处理已写入 inbox: {asset.filename}", kind="操作")
     result: dict[str, Any] = {"path": str(inbox), "bytes": len(data)}
+    if size_synced:
+        result["width"] = int(asset.width)
+        result["height"] = int(asset.height)
+        result["size_label"] = asset.size_label()
     if baked_master:
         src, _inbox, unity = config.resolve_paths(asset)
         if mode == "source" and src.is_file():
@@ -1911,7 +2187,19 @@ async def upload_postprocess_image(file: UploadFile = File(...)) -> dict[str, st
 
 AI_MODES = ("free", "prompt", "refine", "workflow", "basic")
 
-_ai_histories: dict[str, list[dict[str, str]]] = {}
+_ai_histories: dict[str, list[dict[str, Any]]] = {}
+
+
+def _ai_append_failed_turn(hist: list[dict[str, Any]], user_text: str, error: str) -> None:
+    hist.append({"role": "user", "content": user_text})
+    hist.append(
+        {
+            "role": "assistant",
+            "content": error,
+            "failed": True,
+            "retry_message": user_text,
+        }
+    )
 
 _CAT_SETTING_KEYS = (
     "source",
@@ -1995,13 +2283,24 @@ def _apply_ai_basic_updates(config: Any, asset: Any, updates: dict[str, Any], ap
         applied.append("subject")
 
 
-def _apply_ai_prompt_updates(asset: Any, updates: dict[str, Any], applied: list[str]) -> None:
+def _apply_ai_prompt_updates(config: Any, asset: Any, updates: dict[str, Any], applied: list[str]) -> None:
     from ai_assistant import _ai_update_present
 
-    for key in ("positive_g", "positive_l", "positive", "negative", "subject"):
+    for key in (
+        "positive_prefix",
+        "positive_subject",
+        "positive_scene",
+        "positive_light",
+        "positive_g",
+        "positive_l",
+        "positive",
+        "negative",
+        "subject",
+    ):
         if _ai_update_present(updates.get(key)):
             setattr(asset, key, str(updates[key]).strip())
             applied.append(key)
+    config.sync_asset_prompt_fields(asset)
 
 
 def _apply_ai_gen_updates(asset: Any, updates: dict[str, Any], applied: list[str]) -> None:
@@ -2078,7 +2377,7 @@ def _apply_all_ai_updates(
 ) -> bool:
     """将 AI updates 中所有非 null 字段写入内存；返回分类是否有改动。"""
     _apply_ai_basic_updates(config, asset, updates, applied)
-    _apply_ai_prompt_updates(asset, updates, applied)
+    _apply_ai_prompt_updates(config, asset, updates, applied)
     _apply_ai_gen_updates(asset, updates, applied)
     _apply_ai_workflow_update(config, asset, updates, applied)
     target_cat = config.category_by_id(asset.category)
@@ -2088,39 +2387,14 @@ def _apply_all_ai_updates(
     return False
 
 
-@router.post("/ai/chat")
-def ai_chat(body: AiChatBody) -> dict[str, Any]:
-    from ai_assistant import AiAssistantError, build_context_message, chat, parse_ai_response
+def _ai_context_for_asset(config: Any, asset: Any) -> str:
+    from ai_assistant import build_context_message
 
-    config = get_config_manager()
-    asset = config.asset_by_id(body.asset_id)
-    if not asset:
-        raise HTTPException(404, f"资源不存在: {body.asset_id}")
-    d = config.defaults
-    api_key = str(d.get("deepseek_api_key", ""))
-    model = str(d.get("deepseek_model", ""))
-    mode = body.mode if body.mode in AI_MODES else "free"
-    mode_prefix = {
-        "free": (
-            "【任务：根据用户意图配置当前资源；可同时填写基本信息、当前分类的 category_settings、"
-            "提示词、gen_mode/ref_image/img2img_denoise、工作流。updates 中未改字段设为 null；用户未提及的不要改】\n"
-        ),
-        "prompt": "【任务：根据描述生成或重写 ComfyUI 提示词（含 subject / 正负向）】\n",
-        "refine": "【任务：在现有提示词基础上按用户要求微调，保留未提及的合理内容】\n",
-        "workflow": "【任务：处理 ComfyUI 工作流 JSON；仅用户明确要求改结构时才返回 workflow】\n",
-        "basic": (
-            "【任务：填写或修改资源「基本信息」页（subject、filename、分类、宽×高、seed、启用、剔除背景、checkpoint）；"
-            "updates 中未改字段设为 null；不要改 prompt/workflow/category_settings】\n"
-        ),
-    }.get(mode, "")
-    user_text = body.message.strip()
-    if not user_text:
-        raise HTTPException(400, "消息不能为空")
     cat = config.category_by_id(asset.category)
     wf_path = config.workflow_file_for_asset(asset)
     wf_summary = wf_path.name if wf_path.is_file() else "默认"
     cat_opts = ", ".join(f"{c.id}({c.label})" for c in config.categories())
-    ctx = build_context_message(
+    return build_context_message(
         asset_id=asset.id,
         filename=asset.filename,
         category=asset.category,
@@ -2130,6 +2404,10 @@ def ai_chat(body: AiChatBody) -> dict[str, Any]:
         subject=asset.subject,
         positive=asset.positive,
         negative=asset.negative,
+        positive_prefix=getattr(asset, "positive_prefix", ""),
+        positive_subject=getattr(asset, "positive_subject", ""),
+        positive_scene=getattr(asset, "positive_scene", ""),
+        positive_light=getattr(asset, "positive_light", ""),
         positive_g=asset.positive_g,
         positive_l=asset.positive_l,
         workflow_summary=wf_summary,
@@ -2150,6 +2428,56 @@ def ai_chat(body: AiChatBody) -> dict[str, Any]:
         ref_image=getattr(asset, "ref_image", ""),
         img2img_denoise=float(getattr(asset, "img2img_denoise", 0.65)),
     )
+
+
+@router.post("/ai/verify")
+def ai_verify(body: dict[str, Any]) -> dict[str, Any]:
+    """兼容旧前端；与 POST /api/cloud/verify provider=deepseek 相同。"""
+    return cloud_verify(
+        {
+            "provider": "deepseek",
+            "api_key": body.get("api_key"),
+            "model": body.get("model"),
+            "keys": body.get("keys") if isinstance(body.get("keys"), dict) else {},
+        }
+    )
+
+
+@router.post("/ai/chat")
+def ai_chat(body: AiChatBody) -> dict[str, Any]:
+    from ai_assistant import AiAssistantError, chat, parse_ai_response
+
+    config = get_config_manager()
+    asset = config.asset_by_id(body.asset_id)
+    if not asset:
+        raise HTTPException(404, f"资源不存在: {body.asset_id}")
+    d = config.defaults
+    api_key = str(d.get("deepseek_api_key", ""))
+    model = str(d.get("deepseek_model", ""))
+    mode = body.mode if body.mode in AI_MODES else "free"
+    mode_prefix = {
+        "free": (
+            "【任务：根据用户意图配置当前资源；可同时填写基本信息、当前分类的 category_settings、"
+            "提示词、gen_mode/ref_image/img2img_denoise、工作流。updates 中未改字段设为 null；用户未提及的不要改】\n"
+        ),
+        "prompt": (
+            "【任务：按四段结构生成或重写 ComfyUI 提示词：positive_prefix / positive_subject / "
+            "positive_scene / positive_light + negative；未改段设为 null】\n"
+        ),
+        "refine": (
+            "【任务：在四段提示词基础上按用户要求微调（prefix/subject/scene/light/negative），"
+            "保留未提及段的合理内容；未改段设为 null】\n"
+        ),
+        "workflow": "【任务：处理 ComfyUI 工作流 JSON；仅用户明确要求改结构时才返回 workflow】\n",
+        "basic": (
+            "【任务：填写或修改资源「基本信息」页（subject、filename、分类、宽×高、seed、启用、剔除背景、checkpoint）；"
+            "updates 中未改字段设为 null；不要改 prompt/workflow/category_settings】\n"
+        ),
+    }.get(mode, "")
+    user_text = body.message.strip()
+    if not user_text:
+        raise HTTPException(400, "消息不能为空")
+    ctx = _ai_context_for_asset(config, asset)
     hist_key = _ai_hist_key(body.asset_id, mode)
     hist = _ai_histories.setdefault(hist_key, [])
     messages = [{"role": "system", "content": __import__("ai_assistant").SYSTEM_PROMPT}]
@@ -2161,7 +2489,11 @@ def ai_chat(body: AiChatBody) -> dict[str, Any]:
         raw = chat(messages, api_key=api_key, model=model)
         message, updates = parse_ai_response(raw)
     except AiAssistantError as exc:
+        _ai_append_failed_turn(hist, user_text, str(exc))
         raise HTTPException(502, str(exc)) from exc
+    except Exception as exc:
+        _ai_append_failed_turn(hist, user_text, f"AI 请求失败: {exc}")
+        raise HTTPException(502, f"AI 请求失败: {exc}") from exc
     hist.append({"role": "user", "content": user_text})
     hist.append({"role": "assistant", "content": message})
     applied: list[str] = []

@@ -49,6 +49,7 @@ let matteBusy = false;
 let matteStroke = null;
 let matteStrokeActive = false;
 let matteFlushTimer = null;
+let matteEntering = false;
 const MATTE_STROKE_MIN_PX = 3;
 const MATTE_FLUSH_MS = 48;
 let cropPreview = null;
@@ -252,6 +253,121 @@ function canvasSize() {
   };
 }
 
+function clampCanvasDim(n, fallback = 512) {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v)) return fallback;
+  return Math.min(4096, Math.max(32, v));
+}
+
+function setStackCanvasSize(w, h) {
+  if (!stack) return canvasSize();
+  const cw = clampCanvasDim(w);
+  const ch = clampCanvasDim(h);
+  stack.canvas_width = cw;
+  stack.canvas_height = ch;
+  stack.canvas = { width: cw, height: ch };
+  return { w: cw, h: ch };
+}
+
+function isCanvasSizeField(el) {
+  return el?.id === "pp-canvas-w" || el?.id === "pp-canvas-h";
+}
+
+function ensureCanvasSizeInputsEnabled() {
+  const wIn = $("#pp-canvas-w");
+  const hIn = $("#pp-canvas-h");
+  for (const el of [wIn, hIn]) {
+    if (!el) continue;
+    el.disabled = false;
+    el.readOnly = false;
+  }
+}
+
+function parseCanvasFieldValue(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s || !/^\d+$/.test(s)) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
+
+function fillCanvasSizeInputs() {
+  const panel = $("#pp-canvas-size-panel");
+  const wIn = $("#pp-canvas-w");
+  const hIn = $("#pp-canvas-h");
+  if (!panel || !wIn || !hIn) return;
+  if (document.activeElement === wIn || document.activeElement === hIn) return;
+  const { w, h } = canvasSize();
+  wIn.value = String(w);
+  hIn.value = String(h);
+  ensureCanvasSizeInputsEnabled();
+}
+
+function readCanvasSizeInputs({ commit = true } = {}) {
+  const wIn = $("#pp-canvas-w");
+  const hIn = $("#pp-canvas-h");
+  if (!wIn || !hIn) return null;
+  const rawW = parseCanvasFieldValue(wIn.value);
+  const rawH = parseCanvasFieldValue(hIn.value);
+  if (!commit) {
+    if (rawW == null || rawH == null) return null;
+    return { w: rawW, h: rawH };
+  }
+  if (rawW == null || rawH == null) return null;
+  return setStackCanvasSize(rawW, rawH);
+}
+
+function bindCanvasSizeControls() {
+  const wIn = $("#pp-canvas-w");
+  const hIn = $("#pp-canvas-h");
+  if (!wIn || !hIn) return;
+  ensureCanvasSizeInputsEnabled();
+
+  let canvasHistTimer = null;
+  let previewDebounce = null;
+
+  const commitCanvasFromInputs = () => {
+    const parsed = readCanvasSizeInputs({ commit: true });
+    if (!parsed) return false;
+    updatePostprocessMeta();
+    schedulePreview(120);
+    return true;
+  };
+
+  const onCanvasInput = () => {
+    const draft = readCanvasSizeInputs({ commit: false });
+    if (draft) {
+      stack.canvas_width = draft.w;
+      stack.canvas_height = draft.h;
+      stack.canvas = { width: draft.w, height: draft.h };
+      updatePostprocessMeta();
+    }
+    clearTimeout(previewDebounce);
+    previewDebounce = setTimeout(() => {
+      previewDebounce = null;
+      if (readCanvasSizeInputs({ commit: false })) schedulePreview(160);
+    }, 280);
+    if (canvasHistTimer) clearTimeout(canvasHistTimer);
+    canvasHistTimer = setTimeout(() => {
+      canvasHistTimer = null;
+      pushHistoryBefore({ includeImages: false }).catch(() => {});
+    }, 500);
+  };
+
+  const onCanvasCommit = () => {
+    if (!commitCanvasFromInputs()) {
+      fillCanvasSizeInputs();
+    }
+  };
+
+  for (const el of [wIn, hIn]) {
+    el.addEventListener("input", onCanvasInput);
+    el.addEventListener("change", onCanvasCommit);
+    el.addEventListener("keydown", (e) => e.stopPropagation());
+    el.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+  }
+}
+
 function previewBody(extra = {}) {
   return {
     stack,
@@ -441,13 +557,15 @@ function fillProps() {
   const cropFs = $("#pp-crop-fields");
   if (!layer) {
     form.querySelectorAll("input,textarea,select").forEach((el) => {
-      if (el.name) el.disabled = true;
+      if (el.name && !isCanvasSizeField(el)) el.disabled = true;
     });
+    ensureCanvasSizeInputsEnabled();
     return;
   }
   form.querySelectorAll("input,textarea,select").forEach((el) => {
-    el.disabled = false;
+    if (!isCanvasSizeField(el)) el.disabled = false;
   });
+  ensureCanvasSizeInputsEnabled();
   form.name.value = layer.name || "";
   const opPct = Math.min(100, Math.max(0, Math.round((layer.opacity ?? 1) * 100)));
   form.opacity.value = opPct === 100 ? 1 : opPct / 100;
@@ -922,9 +1040,34 @@ async function fetchBounds() {
   }
 }
 
+/** apply 后从服务端拉取最新 stack（烘焙写入 source 会重置 scale/crop） */
+async function reloadStackFromServer() {
+  const data = await API.get(`/api/assets/${assetId}/postprocess`);
+  if (!data?.stack) return;
+  stack = data.stack;
+  const subj = subjectLayer();
+  if (subj?.id) selectedId = subj.id;
+  else if (!stack.layers?.some((l) => l.id === selectedId)) {
+    selectedId = stack.layers?.[0]?.id || selectedId;
+  }
+}
+
+function syncPreviewAfterApply(result = {}) {
+  if (result.width != null && result.height != null) {
+    assetInfo.width = result.width;
+    assetInfo.height = result.height;
+    if (result.size_label) assetInfo.size_label = result.size_label;
+    fillCanvasSizeInputs();
+    updatePostprocessMeta();
+  }
+  zoomFit();
+}
+
 async function refreshPreview() {
   clearTimeout(previewTimer);
-  applyPropsFromForm();
+  if (!isCanvasSizeField(document.activeElement)) {
+    applyPropsFromForm();
+  }
   const reqId = ++previewReq;
   if (previewAbort) previewAbort.abort();
   previewAbort = new AbortController();
@@ -1188,6 +1331,7 @@ async function callLayerMatte(payload) {
 }
 
 async function applyBorderMatte(btn) {
+  exitMatteMode();
   const layer = selectedLayer();
   if (!layer || layer.type !== "image") {
     setStatus(t("pp.matteNeedImage"));
@@ -1256,6 +1400,7 @@ function scheduleMatteFlush(immediate = false) {
 
 async function flushMatteStroke(force = false) {
   cancelMatteStrokeTimer();
+  if (!matteMode && !matteStrokeActive) return;
   if (!matteStroke?.points?.length) return;
   if (matteBusy) {
     if (force || matteStrokeActive) scheduleMatteFlush();
@@ -1309,47 +1454,117 @@ function updateMatteModeUi() {
   const banner = $("#pp-matte-banner");
   const toggle = $("#pp-matte-toggle");
   const wandBtn = $("#pp-matte-wand");
-  vp?.classList.toggle("pp-matte-mode", matteMode);
-  banner?.classList.toggle("hidden", !matteMode);
-  toggle?.classList.toggle("active", matteMode);
-  if (toggle) toggle.textContent = matteMode ? t("pp.matteDone") : t("pp.matteWandShort");
-  if (wandBtn) wandBtn.textContent = matteMode ? t("pp.matteDone") : t("pp.matteWand");
+  const inMatte = matteMode || matteStrokeActive;
+  vp?.classList.toggle("pp-matte-mode", inMatte);
+  banner?.classList.toggle("hidden", !inMatte);
+  if (toggle) {
+    toggle.hidden = !inMatte;
+    toggle.classList.toggle("active", inMatte);
+    toggle.textContent = t("pp.matteDone");
+  }
+  if (wandBtn) wandBtn.textContent = inMatte ? t("pp.matteDone") : t("pp.matteWand");
 }
 
-function enterMatteMode() {
+async function enterMatteMode() {
+  if (matteMode || matteEntering) return;
   if (cropMode) exitCropMode();
+  exitMatteMode();
   const layer = selectedLayer();
   if (!layer || layer.type !== "image") {
     setStatus(t("pp.matteNeedImage"));
     return;
   }
-  void (async () => {
+  matteEntering = true;
+  try {
     if (!(await confirmLayerSourceEdit(layer))) return;
     matteMode = true;
     updateMatteModeUi();
     setStatus(t("pp.matteModeHint"));
-  })();
+  } finally {
+    matteEntering = false;
+  }
 }
 
 function exitMatteMode() {
-  if (!matteMode) return;
   matteMode = false;
+  matteBusy = false;
+  matteEntering = false;
   resetMatteStroke();
   updateMatteModeUi();
+  drawOverlay();
   setStatus(t("pp.ready"));
 }
 
+function isEscapeKey(e) {
+  return e.key === "Escape" || e.code === "Escape" || e.key === "Esc";
+}
+
+function isMatteUiTarget(el) {
+  if (!(el instanceof Element)) return false;
+  return !!el.closest(
+    "#pp-matte-banner, .pp-canvas-toolbar, .pp-layers, .pp-props, .pp-foot, .pp-head, .pp-crop-panel",
+  );
+}
+
+function isViewportMatteTarget(e) {
+  if (cropMode || !matteMode) return false;
+  if (isMatteUiTarget(e.target)) return false;
+  if (e.target instanceof Element && e.target.closest("button, input, textarea, select, a, label")) {
+    return false;
+  }
+  return true;
+}
+
+function handleGlobalEscape(e) {
+  if (!isEscapeKey(e)) return;
+  if (cropMode) {
+    cancelCropMode();
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
+  if (matteMode || matteStrokeActive) {
+    exitMatteMode();
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}
+
+function bindMatteExitControl(el, handler) {
+  if (!el) return;
+  el.addEventListener(
+    "pointerdown",
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handler(e);
+    },
+    true,
+  );
+}
+
 function toggleMatteMode() {
-  if (matteMode) exitMatteMode();
-  else enterMatteMode();
+  if (matteMode || matteStrokeActive) exitMatteMode();
+  else void enterMatteMode();
 }
 
 function bindMatteControls() {
   $("#pp-matte-tol")?.addEventListener("input", syncMatteToleranceFromRange);
   $("#pp-matte-tol-num")?.addEventListener("change", syncMatteToleranceFromNumber);
-  $("#pp-matte-border")?.addEventListener("click", (e) => applyBorderMatte(e.currentTarget));
-  $("#pp-matte-wand")?.addEventListener("click", () => toggleMatteMode());
-  $("#pp-matte-toggle")?.addEventListener("click", () => toggleMatteMode());
+  $("#pp-matte-border")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void applyBorderMatte(e.currentTarget);
+  });
+  bindMatteExitControl($("#pp-matte-wand"), () => toggleMatteMode());
+  bindMatteExitControl($("#pp-matte-toggle"), () => exitMatteMode());
+  bindMatteExitControl($("#pp-matte-exit"), () => exitMatteMode());
+}
+
+function bindEscapeHandler() {
+  const opts = { capture: true };
+  window.addEventListener("keydown", handleGlobalEscape, opts);
+  document.addEventListener("keydown", handleGlobalEscape, opts);
 }
 
 // ── 裁切（1:1 原图面板） ─────────────────────────────
@@ -1830,8 +2045,32 @@ async function saveStack(btn) {
 async function applyInbox(btn) {
   await withBtnBusy(btn || $("#pp-apply"), async () => {
     applyPropsFromForm();
+    if (subjectMode === "source") {
+      const wIn = $("#pp-canvas-w");
+      const hIn = $("#pp-canvas-h");
+      if (wIn && hIn) {
+        const rawW = parseCanvasFieldValue(wIn.value);
+        const rawH = parseCanvasFieldValue(hIn.value);
+        if (rawW == null || rawH == null || rawW < 32 || rawW > 4096 || rawH < 32 || rawH > 4096) {
+          throw new Error(t("pp.canvasSizeInvalid"));
+        }
+        setStackCanvasSize(rawW, rawH);
+        wIn.value = String(rawW);
+        hIn.value = String(rawH);
+      }
+    }
     await API.put(`/api/assets/${assetId}/postprocess`, postprocessSaveBody());
     const r = await API.post(`/api/assets/${encodeURIComponent(assetId)}/postprocess/apply`, previewBody());
+    revokePreviewBlob();
+    const previewImg = $("#pp-preview");
+    if (previewImg) {
+      previewImg.hidden = true;
+      previewImg.removeAttribute("src");
+    }
+    showPreviewLoading(t("pp.rendering"));
+    await reloadStackFromServer();
+    fillProps();
+    syncPreviewAfterApply(r);
     try {
       await fetchBounds();
       await refreshPreview();
@@ -1850,7 +2089,16 @@ async function applyInbox(btn) {
         : t("pp.writtenInbox", { file: r.path?.split("/").pop() || "inbox" }),
     );
     try {
-      window.opener?.postMessage?.({ type: "postprocess-applied", assetId }, location.origin);
+      window.opener?.postMessage?.(
+        {
+          type: "postprocess-applied",
+          assetId,
+          width: r.width,
+          height: r.height,
+          size_label: r.size_label,
+        },
+        location.origin
+      );
     } catch {
       /* ignore */
     }
@@ -1973,10 +2221,12 @@ function bindViewport() {
 
   vp.addEventListener("mousedown", (e) => {
     if (cropMode) return;
+    if (isMatteUiTarget(e.target)) return;
+
     const doc = canvasToDoc(e.clientX, e.clientY);
     const layer = hitTestLayer(doc.x, doc.y);
 
-    if (matteMode && e.button === 0) {
+    if (isViewportMatteTarget(e) && e.button === 0) {
       e.preventDefault();
       const target = layer?.type === "image" && !layer.locked ? layer : selectedLayer();
       if (target?.type === "image" && !target.locked) {
@@ -2064,11 +2314,12 @@ function bindViewport() {
 
 function bindKeys() {
   document.addEventListener("keydown", (e) => {
+    if (isCanvasSizeField(e.target)) return;
     const inField = e.target.matches("input,textarea,select");
     const mod = e.ctrlKey || e.metaKey;
 
     if (cropMode) {
-      if (e.key === "Escape") {
+      if (isEscapeKey(e)) {
         cancelCropMode();
         e.preventDefault();
       } else if (e.key === "Enter") {
@@ -2078,10 +2329,11 @@ function bindKeys() {
       return;
     }
 
-    if (matteMode) {
-      if (e.key === "Escape") {
+    if (matteMode || matteStrokeActive) {
+      if (isEscapeKey(e)) {
         exitMatteMode();
         e.preventDefault();
+        e.stopPropagation();
       }
       return;
     }
@@ -2128,12 +2380,8 @@ function bindKeys() {
       return;
     }
 
-    if (!inField && e.key === "Escape") {
+    if (!inField && isEscapeKey(e)) {
       e.preventDefault();
-      if (matteMode) {
-        exitMatteMode();
-        return;
-      }
       soloId = null;
       const solo = $("#pp-solo");
       if (solo) solo.checked = false;
@@ -2247,11 +2495,12 @@ function updatePostprocessMeta() {
   const sourceName = assetPaths?.source?.split("/").pop() || "source";
   const unityName = assetPaths?.unity?.split("/").pop() || "engine";
   $("#pp-title").textContent = t("pp.titleAsset", { name: assetInfo.filename });
+  const { w: canvasW, h: canvasH } = canvasSize();
   let metaKey = "pp.meta";
-  let metaArgs = { w: assetInfo.width, h: assetInfo.height, inbox: inboxName };
+  let metaArgs = { w: canvasW, h: canvasH, inbox: inboxName };
   if (subjectMode === "source") {
     metaKey = "pp.metaSourceEdit";
-    metaArgs = { w: assetInfo.width, h: assetInfo.height, source: sourceName };
+    metaArgs = { w: canvasW, h: canvasH, source: sourceName };
   } else if (subjectMode === "unity") {
     metaKey = "pp.metaUnityEdit";
     metaArgs = { w: assetInfo.width, h: assetInfo.height, unity: unityName };
@@ -2268,10 +2517,20 @@ function updatePostprocessActions() {
     if (subjectMode === "source") key = "pp.applySource";
     else if (subjectMode === "unity") key = "pp.applyUnity";
     applyBtn.textContent = t(key);
+    applyBtn.title = subjectMode === "source" ? t("pp.canvasSizeHint") : "";
   }
   const restoreBtn = $("#pp-restore-source");
   if (restoreBtn) {
     restoreBtn.hidden = subjectMode === "source" || subjectMode === "unity";
+  }
+  const canvasPanel = $("#pp-canvas-size-panel");
+  if (canvasPanel) {
+    const show = subjectMode === "source";
+    canvasPanel.hidden = !show;
+    if (show) {
+      ensureCanvasSizeInputsEnabled();
+      fillCanvasSizeInputs();
+    }
   }
 }
 
@@ -2326,9 +2585,12 @@ async function bootstrap() {
   bindRangeSync();
   bindTransformControls();
   bindMatteControls();
+  bindEscapeHandler();
   bindHistoryControls();
+  bindCanvasSizeControls();
   resetHistory();
   initToolbarIcons();
+  updatePostprocessActions();
 
   $("#pp-preview")?.addEventListener("error", () => {
     showPreviewEmpty(t("pp.noPreviewFile"));
@@ -2384,6 +2646,7 @@ async function start() {
     onLangChange(() => {
       applyDomI18n();
       updatePostprocessMeta();
+      updatePostprocessActions();
       renderLayers();
       if ($("#pp-crop-toggle")) {
         $("#pp-crop-toggle").textContent = cropMode ? t("pp.cropDone") : t("pp.crop");

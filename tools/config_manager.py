@@ -13,10 +13,31 @@ from typing import Any
 from paths import ART_ROOT, CONFIG_FILE, INBOX_ROOT, PROJECT_ROOT, SOURCE_ROOT, WORKFLOWS_DIR
 
 try:
+    from cloud.registry import DEFAULT_CLOUD_STRENGTH, parse_cloud_gen_mode
+except ImportError:
+    DEFAULT_CLOUD_STRENGTH = 0.65
+
+    def parse_cloud_gen_mode(raw: str | None) -> str:
+        mode = str(raw or "text_to_image").strip()
+        return mode if mode in ("text_to_image", "image_to_image", "image_edit") else "text_to_image"
+
+
+class RenameFileConflictError(ValueError):
+    """重命名目标路径已有文件（常见于删除资源后磁盘 PNG 未删）。"""
+
+    def __init__(self, conflicts: list[dict[str, str]], filename: str) -> None:
+        self.conflicts = conflicts
+        self.filename = filename
+        kinds = ", ".join(c["kind"] for c in conflicts)
+        super().__init__(f"目标文件已存在: {filename}（{kinds}）")
+
+
+try:
     from bootstrap_config import (
         CATEGORY_NEGATIVE_COMMON,
         CATEGORY_POSITIVE_COMMON,
         NO_TRANSPARENT_CATEGORIES,
+        join_prompt_segments,
         merge_prompt_prefix,
         merge_prompt_suffix,
     )
@@ -31,6 +52,14 @@ except ImportError:
         "scenery, environment, floor, ground, wall, room, studio backdrop, vignette, cast shadow on ground"
     )
     NO_TRANSPARENT_CATEGORIES = frozenset({"backgrounds"})
+
+    def join_prompt_segments(*parts: str) -> str:
+        cleaned: list[str] = []
+        for part in parts:
+            text = str(part or "").strip().rstrip(",")
+            if text:
+                cleaned.append(text)
+        return ", ".join(cleaned)
 
     def merge_prompt_prefix(prefix: str, body: str) -> str:
         prefix = prefix.strip()
@@ -123,6 +152,10 @@ class Asset:
     subject: str = ""
     positive: str = ""
     negative: str = ""
+    positive_prefix: str = ""
+    positive_subject: str = ""
+    positive_scene: str = ""
+    positive_light: str = ""
     positive_g: str = ""
     positive_l: str = ""
     workflow: str = ""
@@ -135,6 +168,10 @@ class Asset:
     ref_image: str = ""
     ref_image_use_source: bool = False
     img2img_denoise: float = DEFAULT_IMG2IMG_DENOISE
+    cloud_gen_mode: str = "text_to_image"
+    cloud_prompt: str = ""
+    cloud_negative: str = ""
+    cloud_strength: float = DEFAULT_CLOUD_STRENGTH
 
     @property
     def size(self) -> int:
@@ -302,6 +339,10 @@ class ConfigManager:
                 subject=raw.get("subject", ""),
                 positive=raw.get("positive", ""),
                 negative=raw.get("negative", ""),
+                positive_prefix=raw.get("positive_prefix", ""),
+                positive_subject=raw.get("positive_subject", ""),
+                positive_scene=raw.get("positive_scene", ""),
+                positive_light=raw.get("positive_light", ""),
                 positive_g=raw.get("positive_g", ""),
                 positive_l=raw.get("positive_l", ""),
                 workflow=raw.get("workflow", ""),
@@ -319,6 +360,10 @@ class ConfigManager:
                 ref_image=str(raw.get("ref_image", "")),
                 ref_image_use_source=bool(raw.get("ref_image_use_source", False)),
                 img2img_denoise=float(raw.get("img2img_denoise", DEFAULT_IMG2IMG_DENOISE)),
+                cloud_gen_mode=parse_cloud_gen_mode(raw.get("cloud_gen_mode")),
+                cloud_prompt=str(raw.get("cloud_prompt", "")),
+                cloud_negative=str(raw.get("cloud_negative", "")),
+                cloud_strength=float(raw.get("cloud_strength", DEFAULT_CLOUD_STRENGTH)),
             )
             out.append(a)
         self._assets_cache = out
@@ -449,6 +494,10 @@ class ConfigManager:
             "subject": asset.subject,
             "positive": asset.positive,
             "negative": asset.negative,
+            "positive_prefix": asset.positive_prefix,
+            "positive_subject": asset.positive_subject,
+            "positive_scene": asset.positive_scene,
+            "positive_light": asset.positive_light,
             "positive_g": asset.positive_g,
             "positive_l": asset.positive_l,
             "workflow": asset.workflow,
@@ -461,6 +510,10 @@ class ConfigManager:
             "ref_image": asset.ref_image,
             "ref_image_use_source": asset.ref_image_use_source,
             "img2img_denoise": asset.img2img_denoise,
+            "cloud_gen_mode": asset.cloud_gen_mode,
+            "cloud_prompt": asset.cloud_prompt,
+            "cloud_negative": asset.cloud_negative,
+            "cloud_strength": asset.cloud_strength,
         }
         for i, raw in enumerate(self.data.get("assets", [])):
             if raw.get("id") == asset.id:
@@ -531,20 +584,100 @@ class ConfigManager:
         mode = self.alpha_matte_for_category(asset.category)
         return mode if mode != "none" else "border"
 
+    def asset_has_prompt_segments(self, asset: Asset) -> bool:
+        return any(
+            str(getattr(asset, key, "") or "").strip()
+            for key in ("positive_prefix", "positive_subject", "positive_scene", "positive_light")
+        )
+
+    def compose_positive_body(self, asset: Asset) -> str:
+        if self.asset_has_prompt_segments(asset):
+            return join_prompt_segments(
+                asset.positive_prefix,
+                asset.positive_subject,
+                asset.positive_scene,
+                asset.positive_light,
+            )
+        return (asset.positive or "").strip()
+
+    def compose_sdxl_g_body(self, asset: Asset) -> str:
+        if self.asset_has_prompt_segments(asset):
+            explicit = (asset.positive_g or "").strip()
+            if explicit:
+                return explicit
+            return join_prompt_segments(
+                asset.positive_prefix,
+                asset.positive_subject,
+                asset.positive_scene,
+            )
+        return (asset.positive_g or asset.positive or "").strip()
+
+    def compose_sdxl_l_body(self, asset: Asset) -> str:
+        if self.asset_has_prompt_segments(asset):
+            explicit = (asset.positive_l or "").strip()
+            if explicit:
+                return explicit
+            return join_prompt_segments(
+                asset.positive_subject,
+                asset.positive_scene,
+                asset.positive_light,
+            )
+        return (asset.positive_l or asset.positive or "").strip()
+
+    def sync_asset_prompt_fields(self, asset: Asset) -> None:
+        """根据分段同步 positive 与 SDXL G/L（有分段时）。"""
+        if not self.asset_has_prompt_segments(asset):
+            return
+        asset.positive = self.compose_positive_body(asset)
+        asset.positive_g = join_prompt_segments(
+            asset.positive_prefix,
+            asset.positive_subject,
+            asset.positive_scene,
+        )
+        asset.positive_l = join_prompt_segments(
+            asset.positive_subject,
+            asset.positive_scene,
+            asset.positive_light,
+        )
+
     def prompts_for_generation(self, asset: Asset) -> dict[str, str]:
         """合并资源 prompt 与分类通用 prompt（生成时使用）。"""
         cat = self.category_by_id(asset.category)
         pos_common = (cat.positive_common if cat else "").strip()
         neg_common = (cat.negative_common if cat else "").strip()
-        positive = merge_prompt_prefix(pos_common, asset.positive)
-        positive_g = merge_prompt_prefix(pos_common, asset.positive_g or asset.positive)
-        positive_l = merge_prompt_prefix(pos_common, asset.positive_l or asset.positive)
+        body = self.compose_positive_body(asset)
+        g_body = self.compose_sdxl_g_body(asset)
+        l_body = self.compose_sdxl_l_body(asset)
+        scene_bg = join_prompt_segments(
+            asset.positive_prefix,
+            asset.positive_scene,
+            asset.positive_light,
+        )
+        subject_fg = join_prompt_segments(
+            asset.positive_prefix,
+            asset.positive_subject,
+        )
+        if not scene_bg.strip():
+            scene_bg = body
+        if not subject_fg.strip():
+            subject_fg = body
+        positive = merge_prompt_prefix(pos_common, body)
+        positive_g = merge_prompt_prefix(pos_common, g_body)
+        positive_l = merge_prompt_prefix(pos_common, l_body)
+        positive_scene_bg = merge_prompt_prefix(pos_common, scene_bg)
+        positive_subject_fg = merge_prompt_prefix(pos_common, subject_fg)
         negative = merge_prompt_suffix(asset.negative, neg_common)
         return {
             "positive": positive,
             "positive_g": positive_g,
             "positive_l": positive_l,
             "negative": negative,
+            "positive_prefix": asset.positive_prefix.strip(),
+            "positive_subject": asset.positive_subject.strip(),
+            "positive_scene": asset.positive_scene.strip(),
+            "positive_light": asset.positive_light.strip(),
+            "positive_scene_bg": positive_scene_bg,
+            "positive_subject_fg": positive_subject_fg,
         }
 
     def update_category(self, cat: Category) -> None:
@@ -591,7 +724,47 @@ class ConfigManager:
             fn = f"{fn}.png"
         return fn
 
-    def rename_asset_files(self, asset: Asset, new_filename: str) -> list[str]:
+    @staticmethod
+    def _rename_path_conflict(old_p: Path, new_p: Path) -> bool:
+        """目标路径被占用且与源路径不是同一文件。"""
+        if not new_p.exists():
+            return False
+        try:
+            return old_p.resolve() != new_p.resolve()
+        except OSError:
+            return True
+
+    def _rename_asset_pairs(self, asset: Asset, new_filename: str) -> tuple[tuple, ...]:
+        cat = self.category_by_id(asset.category)
+        if not cat:
+            raise ValueError(f"资源 {asset.id} 的分类不存在")
+        src_old, inbox_old, unity_old = self.resolve_paths(asset)
+        src_new = self.category_source_path(cat) / new_filename
+        inbox_new = self.category_inbox_path(cat) / new_filename
+        unity_new = self.category_unity_path(cat) / new_filename
+        return (
+            ("source", src_old, src_new),
+            ("inbox", inbox_old, inbox_new),
+            ("unity", unity_old, unity_new),
+        )
+
+    def rename_asset_file_conflicts(
+        self, asset: Asset, new_filename: str
+    ) -> list[dict[str, str]]:
+        """列出重命名时会被占用的 source / inbox / unity 目标路径。"""
+        new_filename = self.normalize_asset_filename(new_filename)
+        if new_filename == asset.filename:
+            return []
+        pairs = self._rename_asset_pairs(asset, new_filename)
+        conflicts: list[dict[str, str]] = []
+        for kind, old_p, new_p in pairs:
+            if self._rename_path_conflict(old_p, new_p):
+                conflicts.append({"kind": kind, "path": str(new_p)})
+        return conflicts
+
+    def rename_asset_files(
+        self, asset: Asset, new_filename: str, *, overwrite: bool = False
+    ) -> list[str]:
         """重命名 source / inbox / unity 下已存在的 PNG；更新 asset.filename。"""
         new_filename = self.normalize_asset_filename(new_filename)
         old_filename = asset.filename
@@ -602,35 +775,18 @@ class ConfigManager:
         if other and other.id != asset.id:
             raise ValueError(f"文件名已被占用: {new_filename}")
 
-        cat = self.category_by_id(asset.category)
-        if not cat:
-            raise ValueError(f"资源 {asset.id} 的分类不存在")
-
-        src_old, inbox_old, unity_old = self.resolve_paths(asset)
-        src_new = self.category_source_path(cat) / new_filename
-        inbox_new = self.category_inbox_path(cat) / new_filename
-        unity_new = self.category_unity_path(cat) / new_filename
-        pairs = (
-            ("source", src_old, src_new),
-            ("inbox", inbox_old, inbox_new),
-            ("unity", unity_old, unity_new),
-        )
-
-        for kind, old_p, new_p in pairs:
-            if not old_p.is_file():
-                continue
-            try:
-                if old_p.resolve() == new_p.resolve():
-                    continue
-            except OSError:
-                pass
-            if new_p.exists():
-                raise ValueError(f"{kind} 目标文件已存在: {new_filename}")
+        pairs = self._rename_asset_pairs(asset, new_filename)
+        conflicts = self.rename_asset_file_conflicts(asset, new_filename)
+        if conflicts and not overwrite:
+            raise RenameFileConflictError(conflicts, new_filename)
 
         renamed: list[str] = []
         done: list[tuple[Path, Path]] = []
         try:
             for _kind, old_p, new_p in pairs:
+                if self._rename_path_conflict(old_p, new_p):
+                    if overwrite:
+                        new_p.unlink(missing_ok=True)
                 if not old_p.is_file():
                     continue
                 try:
@@ -775,16 +931,13 @@ class ConfigManager:
         mode = effective_gen_mode(asset)
         src, inbox, _unity = self.resolve_paths(asset)
         if mode == GEN_MODE_REDRAW:
-            try:
-                if src.is_file():
-                    return src.resolve()
-            except OSError:
-                pass
-            try:
-                if inbox.is_file():
-                    return inbox.resolve()
-            except OSError:
-                pass
+            # 重绘：优先 inbox（后处理/导入的工作副本），无 inbox 再回退 source
+            for path in (inbox, src):
+                try:
+                    if path.is_file():
+                        return path.resolve()
+                except OSError:
+                    pass
             return None
         if getattr(asset, "ref_image_use_source", False):
             try:
@@ -806,6 +959,21 @@ class ConfigManager:
             p = self.art_root() / raw
         p = p.resolve()
         return p if p.is_file() else None
+
+    def resolve_redraw_gen_size(self, asset: Asset, ref_path: Path | None = None) -> tuple[int, int]:
+        """重绘图 ComfyUI 尺寸：优先 source 原图像素；无 source 时用当前参考图。"""
+        src, _, _unity = self.resolve_paths(asset)
+        dim_path = src if src.is_file() else ref_path
+        if dim_path is None or not dim_path.is_file():
+            return int(asset.width), int(asset.height)
+        try:
+            from PIL import Image
+
+            with Image.open(dim_path) as im:
+                w, h = im.size
+                return int(w), int(h)
+        except OSError:
+            return int(asset.width), int(asset.height)
 
     def _asset_raw(self, asset_id: str) -> dict[str, Any] | None:
         for raw in self.data.get("assets", []):

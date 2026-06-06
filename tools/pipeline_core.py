@@ -119,6 +119,8 @@ class PipelineCore:
 
         gen_w = int(asset.width * asset.gen_scale)
         gen_h = int(asset.height * asset.gen_scale)
+        output_w = asset.width
+        output_h = asset.height
         seed = self.config.resolve_seed_for_asset(asset, override=seed)
         prefix = Path(asset.filename).stem
 
@@ -129,14 +131,56 @@ class PipelineCore:
             ref_path = self.config.resolve_ref_image_path(asset)
             if not ref_path:
                 if gen_mode == GEN_MODE_REDRAW:
-                    return GenerateResult(asset.id, False, "重绘图：source 原图不存在（且无 inbox 参考）")
+                    return GenerateResult(asset.id, False, "重绘图：inbox 与 source 参考图均不存在")
                 return GenerateResult(asset.id, False, "图生图：参考图不存在或未配置路径")
-            ref_image_name = client.upload_image(ref_path)
+            if gen_mode == GEN_MODE_REDRAW:
+                gen_w, gen_h = self.config.resolve_redraw_gen_size(asset, ref_path)
+                output_w, output_h = gen_w, gen_h
+                src, _, _ = self.config.resolve_paths(asset)
+                dim_note = (
+                    f"source {self.config.rel_to_project(src)}"
+                    if src.is_file()
+                    else self.config.rel_to_project(ref_path)
+                )
+                _log(log, f"  重绘图尺寸 {gen_w}×{gen_h}（{dim_note}）")
+            ref_bytes = ref_path.read_bytes()
+            try:
+                from PIL import Image
+
+                with Image.open(io.BytesIO(ref_bytes)) as im:
+                    ref_size = im.size
+            except OSError:
+                ref_size = None
+            if ref_size != (gen_w, gen_h):
+                ref_bytes = _resize_png(ref_bytes, gen_w, gen_h)
+                _log(
+                    log,
+                    f"  参考图 {self.config.rel_to_project(ref_path)} "
+                    f"{ref_size[0] if ref_size else '?'}×{ref_size[1] if ref_size else '?'} "
+                    f"→ {gen_w}×{gen_h}",
+                )
+            else:
+                _log(log, f"  参考图 {self.config.rel_to_project(ref_path)} ({gen_w}×{gen_h})")
+            import tempfile
+
+            tmp_ref = Path(tempfile.mktemp(suffix=".png", prefix="artpipe_ref_"))
+            try:
+                tmp_ref.write_bytes(ref_bytes)
+                ref_image_name = client.upload_image(tmp_ref)
+            finally:
+                try:
+                    tmp_ref.unlink(missing_ok=True)
+                except OSError:
+                    pass
             denoise = float(getattr(asset, "img2img_denoise", 0.65) or 0.65)
             denoise = max(0.01, min(1.0, denoise))
+            denoise_subject = max(0.15, min(0.85, denoise))
             wf_path = self.config.img2img_workflow_for_asset(asset)
         else:
             wf_path = self.config.workflow_file_for_asset(asset)
+            denoise = 1.0
+            raw_d = float(getattr(asset, "img2img_denoise", 0.52) or 0.52)
+            denoise_subject = max(0.15, min(0.85, raw_d))
 
         template = load_workflow_template(wf_path)
         prompts = self.config.prompts_for_generation(asset)
@@ -146,6 +190,12 @@ class PipelineCore:
             negative=prompts["negative"],
             positive_g=prompts["positive_g"],
             positive_l=prompts["positive_l"],
+            positive_prefix=prompts.get("positive_prefix", ""),
+            positive_subject=prompts.get("positive_subject", ""),
+            positive_scene=prompts.get("positive_scene", ""),
+            positive_light=prompts.get("positive_light", ""),
+            positive_scene_bg=prompts.get("positive_scene_bg", prompts["positive"]),
+            positive_subject_fg=prompts.get("positive_subject_fg", prompts["positive"]),
             width=gen_w,
             height=gen_h,
             seed=seed,
@@ -159,13 +209,14 @@ class PipelineCore:
             lora_strength=lora_strength,
             ref_image=ref_image_name,
             denoise=denoise,
+            denoise_subject=denoise_subject,
         )
 
         mode_note = f" img2img denoise={denoise}" if gen_mode in GEN_MODES_IMG2IMG else ""
         lora_note = f" lora={lora_name}@{lora_strength}" if lora_name else ""
         _log(
             log,
-            f"生成 {asset.filename} ({gen_w}×{gen_h}→{asset.width}×{asset.height}) "
+            f"生成 {asset.filename} ({gen_w}×{gen_h}→{output_w}×{output_h}) "
             f"ckpt={ckpt}{lora_note}{mode_note} seed={seed} steps={steps} cfg={cfg}",
         )
         prompt_id = client.queue_prompt(workflow)
@@ -190,8 +241,8 @@ class PipelineCore:
             img_meta.get("subfolder") or "",
             img_meta.get("type") or "output",
         )
-        if (gen_w, gen_h) != (asset.width, asset.height):
-            data = _resize_png(data, asset.width, asset.height)
+        if (gen_w, gen_h) != (output_w, output_h):
+            data = _resize_png(data, output_w, output_h)
 
         matte_mode = self.config.alpha_matte_for_asset(asset)
         if apply_alpha_matte_png and matte_mode != "none":

@@ -158,6 +158,7 @@ def hidden_imports() -> list[str]:
         "pipeline_core",
         "comfyui_client",
         "workflow_engine",
+        "workflow_presets",
         "ai_assistant",
         "alpha_matte",
         "bootstrap_config",

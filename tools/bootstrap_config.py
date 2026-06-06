@@ -60,6 +60,16 @@ def merge_prompt_suffix(base: str, suffix: str) -> str:
         return suffix
     return f"{base}, {suffix}"
 
+
+def join_prompt_segments(*parts: str) -> str:
+    """拼接正向分段（画质/主体/场景/光影），忽略空段。"""
+    cleaned: list[str] = []
+    for part in parts:
+        text = str(part or "").strip().rstrip(",")
+        if text:
+            cleaned.append(text)
+    return ", ".join(cleaned)
+
 # Game Icon Institute V4_XL 风格触发词（Civitai #47800）
 # gmic_(3dicon)=欧美3D游戏icon | gmic icon_(xieshi)=写实 | gmic_(2dXIANTIAO)=2D线条
 GII_STYLE_TRIGGER = "gmic_(3dicon)"
@@ -480,6 +490,7 @@ def build_default_config() -> dict:
             "背景海报",
             "backgrounds",
             "Assets/Art/UI",
+            workflow="workflows/_sdxl_split_g_l_api.json",
         ),
     ]
 

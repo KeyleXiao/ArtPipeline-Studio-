@@ -63,6 +63,11 @@ items:
     inbox: inbox/items/item_amulet.png
     unity: Assets/Art/UI/Icons/Items/item_amulet.png
     subject: 护身符 · 金吊坠 + 暗红宝石
+  - file: enhance_mec.png
+    size: 256x256
+    inbox: inbox/items/enhance_mec.png
+    unity: Assets/Art/UI/Icons/Items/enhance_mec.png
+    subject: 强化剂 · 注射强化药剂 + 黄能量光晕
   - file: item_milk_tea.png
     size: 256x256
     inbox: inbox/items/item_milk_tea.png

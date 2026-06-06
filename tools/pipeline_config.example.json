@@ -127,7 +127,7 @@
       "source": "source/backgrounds",
       "inbox": "inbox/backgrounds",
       "unity": "Assets/Art/UI",
-      "default_workflow": "workflows/_default_sdxl_api.json",
+      "default_workflow": "workflows/_sdxl_split_g_l_api.json",
       "checkpoint": "animagineXL_v3.safetensors",
       "lora": "",
       "lora_strength": 0.0,

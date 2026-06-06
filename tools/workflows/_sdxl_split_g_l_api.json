@@ -1,7 +1,9 @@
 {
   "_meta": {
-    "description": "SDXL 文生图默认模板。占位符：{{POSITIVE}} {{POSITIVE_G}} {{POSITIVE_L}} {{POSITIVE_PREFIX}} {{POSITIVE_SUBJECT}} {{POSITIVE_SCENE}} {{POSITIVE_LIGHT}} {{NEGATIVE}} {{WIDTH}} {{HEIGHT}} ...",
-    "format": "comfyui_api"
+    "description": "SDXL 文生图 · 四段 prompt 映射 G/L。G={{POSITIVE_G}} L={{POSITIVE_L}}；亦支持 {{POSITIVE_PREFIX}} 等分段占位符。",
+    "format": "comfyui_api",
+    "preset_id": "sdxl_split_gl",
+    "notes": "G=画质+主体+场景，L=主体+场景+光影（由 ArtPipeline 根据四段自动合并）"
   },
   "1": {
     "class_type": "CheckpointLoaderSimple",
@@ -27,8 +29,8 @@
       "crop_h": 0,
       "target_width": "{{WIDTH}}",
       "target_height": "{{HEIGHT}}",
-      "text_g": "{{POSITIVE}}",
-      "text_l": "{{POSITIVE}}"
+      "text_g": "{{POSITIVE_G}}",
+      "text_l": "{{POSITIVE_L}}"
     }
   },
   "4": {

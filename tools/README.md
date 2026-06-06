@@ -28,6 +28,9 @@ ArtPipeline/tools/
 ├── pipeline_core.py          # 生成 / 导出 / ComfyUI 调度
 ├── workflow_engine.py        # 工作流 JSON 占位符替换
 ├── comfyui_client.py         # ComfyUI HTTP 客户端
+├── cloud/                    # 云生图注册表与实现（与 ComfyUI 并行）
+│   ├── registry.json         # 模型 / provider / 三种模式映射
+│   └── README.md
 ├── bootstrap_config.py       # 首次默认配置
 ├── paths.py
 └── workflows/
@@ -43,7 +46,9 @@ ArtPipeline/tools/
 |------|------|
 | `defaults` | ComfyUI URL、采样参数（steps/cfg/sampler）；`checkpoint` 仅作新建分类时的预选，不参与生图兜底 |
 | `categories[]` | 分类 ↔ `source/` / `inbox/` / Unity 路径映射；**checkpoint** 为分类默认模型 |
-| `assets[]` | 每张图的文件名、尺寸、正负 prompt、工作流路径；可选 **checkpoint** 覆盖分类 |
+| `assets[]` | 每张图的文件名、尺寸、正负 prompt、工作流路径；可选 **checkpoint** 覆盖分类；云端资源可加 `cloud_gen_mode` / `cloud_prompt` |
+
+**云生图**（与 ComfyUI 并行，不修改 `pipeline_core.py`）：checkpoint 以 `cloud:` 前缀选择云端模型。详见 [cloud/registry.json](cloud/registry.json) 与 [docs/cloud-generation.md](../docs/cloud-generation.md)。
 
 **新增分类** = 新增 `source/<id>/`、`inbox/<id>/` 文件夹 + 配置项。  
 **新增资源** = 在 UI 或 JSON 中添加 asset，并创建 `workflows/assets/<id>.json`。
@@ -72,6 +77,7 @@ pip install -r ArtPipeline/tools/requirements.txt
 - **websocket-client**（可选）— ComfyUI 实时采样进度
 - tkinter（macOS 自带）
 - ComfyUI 本地运行（默认 `http://127.0.0.1:8188`）
+- 云生图（可选）：Stability / 万相 / 混元 / 即梦 API Key，见 `cloud/registry.json`
 
 ## 图形界面功能
 

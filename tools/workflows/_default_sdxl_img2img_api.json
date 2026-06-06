@@ -26,12 +26,12 @@
     "class_type": "CLIPTextEncodeSDXL",
     "inputs": {
       "clip": ["1", 1],
-      "width": 1024,
-      "height": 1024,
+      "width": "{{WIDTH}}",
+      "height": "{{HEIGHT}}",
       "crop_w": 0,
       "crop_h": 0,
-      "target_width": 1024,
-      "target_height": 1024,
+      "target_width": "{{WIDTH}}",
+      "target_height": "{{HEIGHT}}",
       "text_g": "{{POSITIVE}}",
       "text_l": "{{POSITIVE}}"
     }
@@ -40,12 +40,12 @@
     "class_type": "CLIPTextEncodeSDXL",
     "inputs": {
       "clip": ["1", 1],
-      "width": 1024,
-      "height": 1024,
+      "width": "{{WIDTH}}",
+      "height": "{{HEIGHT}}",
       "crop_w": 0,
       "crop_h": 0,
-      "target_width": 1024,
-      "target_height": 1024,
+      "target_width": "{{WIDTH}}",
+      "target_height": "{{HEIGHT}}",
       "text_g": "{{NEGATIVE}}",
       "text_l": "{{NEGATIVE}}"
     }

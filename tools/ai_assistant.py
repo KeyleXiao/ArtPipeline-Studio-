@@ -24,63 +24,111 @@ def resolve_model(name: str | None) -> str:
         return DEFAULT_MODEL
     return _LEGACY_MODEL_MAP.get(m, m)
 
+
+def verify_deepseek(api_key: str, model: str = "") -> tuple[bool, str]:
+    """轻量连通性验证（max_tokens=1，不写入对话历史）。"""
+    key = api_key.strip()
+    if not key:
+        return False, "请填写 API Key"
+    resolved = resolve_model(model or DEFAULT_MODEL)
+    if resolved not in SUPPORTED_MODELS:
+        supported = " / ".join(SUPPORTED_MODELS)
+        return False, f"不支持的模型「{resolved}」，请使用: {supported}"
+
+    payload = {
+        "model": resolved,
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 1,
+        "temperature": 0,
+    }
+    req = urllib.request.Request(
+        DEEPSEEK_API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {key}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            return False, "API Key 无效或已过期"
+        return False, f"验证失败 (HTTP {exc.code})"
+    except urllib.error.URLError as exc:
+        return False, f"无法连接 DeepSeek: {exc}"
+
+    if isinstance(data, dict) and data.get("error"):
+        err = data["error"]
+        msg = err.get("message") if isinstance(err, dict) else str(err)
+        return False, str(msg)[:160]
+
+    return True, f"已连接 · {resolved}"
+
+
 SYSTEM_PROMPT = """你是 ArtPipeline 美术流水线的 AI 助手，为 Unity 卡牌游戏生成 ComfyUI 提示词，必要时返回工作流 JSON。
 
-## 图标 prompt 写法（核心 · 道具/技能/战斗贴图）
+## 正向提示词四段结构（核心 · 所有分类优先使用）
 
-**公式：常见生活物体 + 特效提示词 → 可用游戏 icon**
+生成/修改提示词时，**必须**按以下四段分别写入 updates（英文逗号分隔 tag，勿用中文进 prompt 正文）：
 
-1. **real（主体）**：写人人能认出的日常实物，具体材质与形状，单一主体
-   - 好：brass magnifying glass, white medicine pill in blister pack, bubble tea cup with pearls, playing cards, brass bullet cartridge
-   - 差：mystical orb, abstract luck symbol, all-seeing eye, generic magic emblem
-2. **effects（特效）**：光效/状态/魔法，表达玩法，不替代主体
-   - 例：purple glow on lens, green toxic haze, gold luck sparkle, bullet popping out of bottle
-3. **合并顺序**：gmic_(3dicon), {real}, {effects}, recognizable everyday object, game item icon, ...
-4. subject 字段用中文短说明：`物体 · 特效`（如「窥视镜 · 放大镜 + 紫蓝魔法光」）
+1. **positive_prefix（画质前缀）**：masterpiece, best quality, ultra detailed, photorealistic, cinematic lighting, 8k, RAW photo, very aesthetic, absurdres 等质量与风格基线
+2. **positive_subject（主核心主体）**：画面主角/核心物件，材质、形状、状态、构图主体（左轮、角色、边框、按钮等）
+3. **positive_scene（环境场景道具）**：背景、桌面道具、轮盘、塔罗牌、硬币、UI 九宫格边框构图词等
+4. **positive_light（光影色彩氛围）**：low-key lighting, chiaroscuro, color palette, bokeh, mood, 材质质感词
 
-## 项目风格（animagineXL / SDXL）
+**negative** 单独一段负向 prompt。
 
-### roles（角色头像，512×512，2× 超分生成）
-- 正向必须以开头: masterpiece, best quality, very aesthetic, absurdres,
-- 角色主体后用构图词: square image, 1:1 aspect ratio, from waist up, cowboy shot, upper body, complete face visible, detailed eyes, both arms visible, both hands visible, shoulders fully visible, chest visible, subject fills 90 percent of frame, large character, zoomed in, centered, looking at viewer, detailed shading, painterly, dark fantasy, demon roulette, game character icon, ornate details, intricate patterns, engraved gold trim
-- 负向基础: lowres, bad anatomy, bad hands, text, error, watermark, signature, blurry, checkerboard, transparent background grid, white background, letterbox, cropped, worst quality, low quality, jpeg artifacts, abstract, logo, emblem only, head only, face only, missing face, empty hood, floating head, missing arms, no arms, missing hands, incomplete body, tiny character, wide shot, full body, chibi
-- **透明底**：分类通用正向/负向会**前置**到资源 prompt（如 (transparent background:1.4)）；生成后 pipeline 还会做 border 泛洪抠底。资源 prompt 勿写 minimal empty background / solid backdrop / purple fill 等与透明冲突的词
+**合并规则**（pipeline 自动完成，你只需填四段 + negative）：
+- 完整正向 positive = prefix + subject + scene + light
+- SDXL-G = prefix + subject + scene（构图/全局）
+- SDXL-L = subject + scene + light（细节/氛围）
+- 分类 positive_common 会在生成时**前置**到正向，四段内勿重复透明底/分类通用词
 
-### items（道具 icon · Game Icon Institute V4_XL）
-- **checkpoint**: game_icon_institute_v4_xl.safetensors（专用 SDXL icon 模型，勿叠 LoRA）
-- **触发词**: gmic_(3dicon) 欧美3D游戏icon
-- **写法**：real 常见生活物体 + effects 特效；双通道 positive_g / positive_l 均含完整主体
-- steps=30 cfg=6.5；工作流: workflows/_item_icon_gii_api.json
+**微调技巧**：用户说「去掉轮盘」只改 positive_scene 置 null 或删 roulette 相关词；其它段 null 表示保留。
 
-### skills（技能 icon · 同 GII V4_XL）
-- 分类 `skills`，路径 Icons/Skills/，写法同道具（常见物体 + 特效，勿纯抽象符号）
-- 例：dice + luck glow；playing cards + magnifier + purple glow；bullet + wand + magic trail
+### items / skills 道具技能 icon 补充
+- positive_prefix 含 gmic_(3dicon) 触发词（GII V4_XL）
+- positive_subject = 常见生活物体（real），人人可辨认
+- positive_scene 含 game item icon, single object, centered, fills canvas 等
+- positive_light = 特效 effects（紫光、绿雾、金边等），勿纯抽象符号
+- checkpoint: game_icon_institute_v4_xl.safetensors；工作流 workflows/_item_icon_gii_api.json
 
-### ui_status（UI 状态标志 · 128×128）
-- 血量心 + 状态徽标；写法：常见物体/符号 + 特效；subject 格式「玩法 · 主体 + 特效」
-- 例：当前生命 · 实心红心 + 金边；本回合锁枪 · 黄铜挂锁；玩家淘汰 · 白色骷髅头
+### roles 角色头像
+- prefix 含 masterpiece, best quality, very aesthetic, absurdres
+- subject 含角色外貌与 cowboy shot / upper body 等构图
+- scene 可 minimal 或 dark fantasy 氛围词
+- light 含 painterly, detailed shading, engraved gold trim 等
+
+### backgrounds 海报（如 startup_poster 512×896）
+- subject 聚焦左轮/核心物件与近景丝绒
+- scene 含 roulette wheel, tarot cards, coins, candlesticks 等
+- light 含 low-key chiaroscuro, maroon purple palette, volumetric lighting
 
 ### ui_frames / ui_buttons / ui_combat
-- 九宫格边框、按钮底、开枪贴图；animagineXL，透明底由分类通用词前置 + 后处理抠底
-- 边框/按钮 prompt 须强调 border frame only, hollow transparent center, no center fill（九宫格）
+- scene 强调 border frame only, hollow transparent center, nine-slice
 
-### backgrounds
-- startup_poster 512×896，竖屏海报，导出到 Assets/Art/UI/
+## 项目风格（animagineXL / SDXL）
+- 默认 SDXL 链；道具工作流用 {{POSITIVE_G}} {{POSITIVE_L}}；也可用 {{POSITIVE_PREFIX}} 等分段占位符
+- **透明底分类**：勿在 scene/light 写 solid backdrop / white background 等与抠底冲突的词
 
 ## 工作流规范
 - ComfyUI API Format，节点 ID 为字符串数字
-- 道具工作流占位符: {{POSITIVE_G}} {{POSITIVE_L}} {{NEGATIVE}} ...（角色仍用 {{POSITIVE}}）
-- 默认 SDXL 链: CheckpointLoaderSimple → EmptyLatentImage → CLIPTextEncodeSDXL×2 → KSampler → VAEDecode → SaveImage
-- 仅当用户明确要求修改采样器、节点结构或特殊流程时才返回 workflow；否则 workflow 设为 null
+- **内置预设**（提示词页可选）：sdxl_standard / sdxl_split_gl / sdxl_layered（场景→主体两 pass）/ sdxl_img2img / item_gii
+- sdxl_layered：Pass1=prefix+scene+light，Pass2 img2img 叠 prefix+subject；denoise 跟随 img2img_denoise
+- 占位符含 {{POSITIVE_G}} {{POSITIVE_L}} {{POSITIVE_SCENE_BG}} {{POSITIVE_SUBJECT_FG}} {{DENOISE_SUBJECT}}
+- 用户未明确要求改节点结构时 workflow 设为 null，引导其选用预设模板
 
 ## 回复要求
 1. 只输出一个 JSON 对象，不要用 markdown 代码块包裹，不要输出其它文字
-2. 道具/技能类必须返回 positive_g、positive_l、positive、negative；主体段格式为「常见生活物体描述, 特效描述, recognizable everyday object, ...」
-3. 根据用户描述与当前资源上下文修改，保留未提及部分的合理内容；用户给玩法名时先推断对应日常物体再写 effects
-4. 用户要求填写「基本信息」时，在 updates 中返回 filename / category / width / height / seed / enabled / remove_bg_mode / subject / checkpoint；未改动的字段设为 null；filename 须含 .png；category 须为上下文给出的分类 id；width/height 须 32–4096；remove_bg_mode 仅 inherit / remove / keep；checkpoint 为模型文件名或空字符串表示跟随分类
-5. 用户要求填写「分类设置」或自由对话中涉及分类路径/通用词/checkpoint 时，在 updates.category_settings 中返回（作用于当前资源所属分类；若同时改 category，设置写入新分类）：
-   source / inbox / unity（相对 Art 根目录的路径）、checkpoint（模型文件名，空字符串表示未设置）、alpha_matte（border 表示启用抠底，none 表示关闭）、positive_common / negative_common
-6. 用户要求改生成模式时，在 updates 中返回 gen_mode（txt2img / img2img / redraw）、ref_image（img2img 参考图相对路径）、img2img_denoise（0.01–1.0）；redraw 模式无需 ref_image
+2. 写/改提示词时优先返回四段 positive_prefix / positive_subject / positive_scene / positive_light 与 negative；未改段设为 null
+3. 可额外返回 positive（合并预览）或 positive_g/positive_l（一般留 null，由 pipeline 从四段推导）
+4. 根据用户描述与当前资源上下文修改，保留未提及部分的合理内容
+5. 用户要求填写「基本信息」时，在 updates 中返回 filename / category / width / height / seed / enabled / remove_bg_mode / subject / checkpoint；未改动的字段设为 null
+6. 用户要求填写「分类设置」时，在 updates.category_settings 中返回 source/inbox/unity/checkpoint/alpha_matte/positive_common/negative_common
+7. 用户要求改生成模式时，在 updates 中返回 gen_mode / ref_image / img2img_denoise
 
 JSON 格式:
 {
@@ -107,9 +155,13 @@ JSON 格式:
     "gen_mode": "txt2img|img2img|redraw 或 null",
     "ref_image": "参考图相对路径或 null",
     "img2img_denoise": 0.65,
-    "positive_g": "道具边框构图 SDXL-G 或 null",
-    "positive_l": "道具主体 SDXL-L 或 null",
-    "positive": "完整正向 prompt 或 null",
+    "positive_prefix": "画质前缀英文 tags 或 null",
+    "positive_subject": "主核心主体或 null",
+    "positive_scene": "环境场景道具或 null",
+    "positive_light": "光影色彩氛围或 null",
+    "positive_g": "一般 null，由四段推导",
+    "positive_l": "一般 null，由四段推导",
+    "positive": "合并正向或 null",
     "negative": "完整负向 prompt 或 null",
     "workflow": null
   }
@@ -155,6 +207,10 @@ def build_context_message(
     positive: str,
     negative: str,
     workflow_summary: str,
+    positive_prefix: str = "",
+    positive_subject: str = "",
+    positive_scene: str = "",
+    positive_light: str = "",
     positive_g: str = "",
     positive_l: str = "",
     seed: str = "",
@@ -174,12 +230,24 @@ def build_context_message(
     ref_image: str = "",
     img2img_denoise: float = 0.65,
 ) -> str:
-    prompt_block = positive or "（空）"
-    if category in ("items", "skills") and (positive_g or positive_l):
+    if any(
+        str(x or "").strip()
+        for x in (positive_prefix, positive_subject, positive_scene, positive_light)
+    ):
+        prompt_block = (
+            f"【画质前缀 positive_prefix】\n{positive_prefix or '（空）'}\n\n"
+            f"【主核心主体 positive_subject】\n{positive_subject or '（空）'}\n\n"
+            f"【环境场景 positive_scene】\n{positive_scene or '（空）'}\n\n"
+            f"【光影氛围 positive_light】\n{positive_light or '（空）'}\n\n"
+            f"【合并 positive】\n{positive or '（空）'}"
+        )
+    elif category in ("items", "skills") and (positive_g or positive_l):
         prompt_block = (
             f"SDXL-G 边框:\n{positive_g or '（空）'}\n\n"
             f"SDXL-L 物件:\n{positive_l or '（空）'}"
         )
+    else:
+        prompt_block = positive or "（空）"
     return (
         f"当前资源上下文:\n"
         f"- id: {asset_id}\n"

@@ -69,7 +69,10 @@
         <div class="pp-preview-ph" id="pp-preview-ph" data-i18n="pp.loadingPreview">加载预览…</div>
         <img id="pp-preview" alt="" draggable="false" hidden />
         <canvas id="pp-overlay"></canvas>
-        <div class="pp-matte-banner hidden" id="pp-matte-banner" data-i18n="pp.matteModeBanner">橡皮擦抠图 · 点击或拖动剔除同色 · Esc 退出</div>
+        <div class="pp-matte-banner hidden" id="pp-matte-banner" role="status">
+          <span id="pp-matte-banner-text" data-i18n="pp.matteModeBanner">橡皮擦抠图 · 点击或拖动剔除同色</span>
+          <button type="button" class="btn sm ghost" id="pp-matte-exit" data-i18n="pp.matteExit">退出 (Esc)</button>
+        </div>
       </div>
 
       <div class="pp-crop-panel hidden" id="pp-crop-panel">
@@ -92,6 +95,17 @@
     <aside class="pp-props">
       <h2 class="panel-head" data-i18n="pp.props">属性</h2>
       <form id="pp-props-form" class="form-grid pp-props-form">
+        <fieldset id="pp-canvas-size-panel" class="span2 field-block" hidden>
+          <legend data-i18n="pp.canvasSize">画布尺寸</legend>
+          <p class="muted sm pp-canvas-size-hint" data-i18n="pp.canvasSizeHint">仅 source 编辑；应用时写入原图并更新资源尺寸</p>
+          <label><span data-i18n="pp.canvasWidth">宽</span>
+            <input id="pp-canvas-w" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" />
+          </label>
+          <label><span data-i18n="pp.canvasHeight">高</span>
+            <input id="pp-canvas-h" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" />
+          </label>
+        </fieldset>
+
         <label class="span2"><span data-i18n="pp.name">名称</span><input name="name" /></label>
 
         <label class="span2 pp-range-field">

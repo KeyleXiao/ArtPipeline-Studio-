@@ -142,180 +142,706 @@
         <nav class="tabs" id="main-tabs">
           <button type="button" class="tab active" data-tab="ai" data-i18n="tab.ai" data-requires-asset>AI 助手</button>
           <button type="button" class="tab" data-tab="basic" data-i18n="tab.basic" data-requires-asset>基本信息</button>
-          <button type="button" class="tab" data-tab="prompt" data-i18n="tab.prompt" data-requires-asset>提示词与工作流</button>
+          <button type="button" class="tab" data-tab="comfyui" data-gen-tab="comfyui" data-i18n="tab.comfyui" hidden data-requires-asset>ComfyUI</button>
+          <button type="button" class="tab" data-tab="cloud-dashscope" data-gen-tab="cloud" data-provider="dashscope" hidden data-requires-asset>万相</button>
+          <button type="button" class="tab" data-tab="cloud-tencent" data-gen-tab="cloud" data-provider="tencent" hidden data-requires-asset>混元</button>
+          <button type="button" class="tab" data-tab="cloud-volcengine" data-gen-tab="cloud" data-provider="volcengine" hidden data-requires-asset>即梦</button>
+          <button type="button" class="tab" data-tab="cloud-stability" data-gen-tab="cloud" data-provider="stability" hidden data-requires-asset>Stability</button>
           <button type="button" class="tab" data-tab="category" data-i18n="tab.category">分类设置</button>
           <button type="button" class="tab" data-tab="settings" data-i18n="tab.settings">全局设置</button>
         </nav>
 
-        <div class="tab-body hidden" id="tab-basic">
-          <form class="form-grid" id="form-basic">
-            <label><span data-i18n="form.id">ID</span><input name="id" readonly /></label>
-            <label><span data-i18n="form.filename">文件名</span><input name="filename" /></label>
-            <label><span data-i18n="form.category">分类</span><select name="category" id="asset-category-select"></select></label>
-            <label><span data-i18n="form.width">宽度</span><input name="width" type="number" /></label>
-            <label><span data-i18n="form.height">高度</span><input name="height" type="number" /></label>
-            <label><span data-i18n="form.seed">Seed</span><input name="seed" data-i18n-placeholder="form.seedPlaceholder" placeholder="留空=全局" /></label>
-            <label class="span2"><span data-i18n="form.subject">说明</span><input name="subject" /></label>
-            <label class="span2"><span data-i18n="form.checkpoint">Checkpoint</span><select name="checkpoint" id="asset-ckpt"></select></label>
-            <label class="check check-modern span2"><input name="enabled" type="checkbox" /><span class="check-ui"></span><span class="check-text" data-i18n="form.enabled">启用（参与批量生成）</span></label>
-            <p class="muted sm span2" data-i18n="form.enabledHint">未勾选时仍可右键单独「生成此资源」；整类批量只会处理已启用资源</p>
-            <fieldset class="span2 radio-field">
-              <legend data-i18n="form.removeBg">剔除背景</legend>
-              <div class="radio-seg" role="radiogroup">
-                <label class="radio-seg-item">
-                  <input type="radio" name="remove_bg_mode" value="inherit" />
-                  <span class="radio-seg-label" data-i18n="form.removeBgInherit">跟随分类</span>
-                </label>
-                <label class="radio-seg-item">
-                  <input type="radio" name="remove_bg_mode" value="remove" />
-                  <span class="radio-seg-label" data-i18n="form.removeBgRemove">剔除</span>
-                </label>
-                <label class="radio-seg-item">
-                  <input type="radio" name="remove_bg_mode" value="keep" />
-                  <span class="radio-seg-label" data-i18n="form.removeBgKeep">不剔除</span>
-                </label>
-              </div>
-            </fieldset>
-            <div class="span2 form-actions">
-              <button type="submit" class="btn primary" data-i18n="form.saveBasic">保存基本信息</button>
-            </div>
-          </form>
-        </div>
-
-        <div class="tab-body hidden" id="tab-category">
-          <form class="form-grid" id="form-category">
-            <label class="span2"><span data-i18n="form.sourcePath">source</span><input name="source" /></label>
-            <label class="span2"><span data-i18n="form.inboxPath">inbox</span><input name="inbox" /></label>
-            <label class="span2"><span data-i18n="form.enginePath">游戏引擎</span><input name="unity" /></label>
-            <label class="span2"><span data-i18n="form.checkpoint">Checkpoint</span><select name="checkpoint" id="cat-ckpt"></select></label>
-            <label class="check check-modern span2">
-              <input name="alpha_matte" type="checkbox" />
-              <span class="check-ui"></span>
-              <span class="check-text" data-i18n="form.alphaMatte">分类默认剔除纯色背景</span>
-            </label>
-            <label class="span2"><span data-i18n="form.positiveCommon">分类通用正向</span><textarea name="positive_common" rows="3"></textarea></label>
-            <label class="span2"><span data-i18n="form.negativeCommon">分类通用负向</span><textarea name="negative_common" rows="3"></textarea></label>
-            <div class="span2 form-actions">
-              <button type="submit" class="btn primary" data-i18n="form.saveCategory">保存分类设置</button>
-            </div>
-          </form>
-        </div>
-
-        <div class="tab-body hidden" id="tab-prompt">
-          <fieldset class="radio-field gen-mode-field">
-            <legend data-i18n="form.genMode">生成模式</legend>
-            <div class="radio-seg gen-mode-seg" role="radiogroup" id="gen-mode-seg">
-              <label class="radio-seg-item">
-                <input type="radio" name="gen_mode" value="txt2img" checked />
-                <span class="radio-seg-label" data-i18n="form.genModeTxt2img">文生图</span>
-              </label>
-              <label class="radio-seg-item">
-                <input type="radio" name="gen_mode" value="img2img" />
-                <span class="radio-seg-label" data-i18n="form.genModeImg2img">图生图</span>
-              </label>
-              <label class="radio-seg-item">
-                <input type="radio" name="gen_mode" value="redraw" />
-                <span class="radio-seg-label" data-i18n="form.genModeRedraw">重绘图</span>
-              </label>
-            </div>
-          </fieldset>
-          <div id="img2img-panel" class="gen-ref-panel hidden">
-            <div id="ref-image-section" class="ref-path-block hidden">
-              <div class="ref-path-head">
-                <span class="ref-path-title" data-i18n="form.refImage">参考图</span>
-              </div>
-              <div class="ref-path-picker">
-                <input
-                  type="text"
-                  id="ref-image-path"
-                  class="ref-path-input"
-                  data-i18n-placeholder="form.refImagePlaceholder"
-                  placeholder="相对 ArtPipeline 或绝对路径"
-                  spellcheck="false"
-                />
-                <button type="button" class="ref-path-browse" data-action="pick-ref-image" data-i18n="form.pickRefImage">浏览…</button>
-              </div>
-            </div>
-            <div id="redraw-source-section" class="ref-path-block ref-path-readonly hidden">
-              <div class="ref-path-head">
-                <span class="ref-path-title" data-i18n="form.redrawSource">参考图</span>
-                <span class="ref-path-tag" data-i18n="form.redrawSourceTag">source 原图</span>
-              </div>
-              <div class="ref-path-display" id="redraw-source-path">—</div>
-            </div>
-            <label class="denoise-field">
-              <span data-i18n="form.img2imgDenoise">重绘幅度 (denoise)</span>
-              <div class="denoise-row">
-                <input type="range" id="img2img-denoise-range" min="0.01" max="1" step="0.01" value="0.65" />
-                <input type="number" id="img2img-denoise" min="0.01" max="1" step="0.01" value="0.65" />
-              </div>
-            </label>
-            <p class="muted sm gen-ref-hint" id="gen-ref-hint" data-i18n="form.img2imgHint">图生图会先上传参考图到 ComfyUI，再按 denoise 强度重绘。</p>
-          </div>
-          <div id="sdxl-split" class="hidden">
-            <label><span data-i18n="form.positiveG">正向 G（边框构图）</span><textarea id="positive-g-text" rows="4"></textarea></label>
-            <label><span data-i18n="form.positiveL">正向 L（物件主体）</span><textarea id="positive-l-text" rows="4"></textarea></label>
-          </div>
-          <label><span data-i18n="form.positive">正向 prompt</span><textarea id="positive-text" rows="8"></textarea></label>
-          <label><span data-i18n="form.negative">负向 prompt</span><textarea id="negative-text" rows="4"></textarea></label>
-          <div class="form-actions">
-            <button type="button" class="btn primary" data-action="save-prompts" data-i18n="form.savePrompts">保存提示词</button>
-          </div>
-          <label><span data-i18n="form.workflow">工作流 JSON</span><textarea id="workflow-text" rows="12" spellcheck="false"></textarea></label>
-          <div class="form-actions">
-            <button type="button" class="btn" data-action="load-default-wf" data-i18n="form.defaultTemplate">默认模板</button>
-            <button type="button" class="btn" data-action="validate-wf" data-i18n="form.validateJson">校验 JSON</button>
-            <button type="button" class="btn primary" data-action="save-wf" data-i18n="form.saveWorkflow">保存工作流</button>
-          </div>
-        </div>
-
-        <div class="tab-body hidden" id="tab-ai">
-          <div class="ai-panel">
-            <nav class="ai-mode-tabs" id="ai-mode-tabs">
-              <button type="button" class="ai-mode-tab active" data-ai-mode="free" data-i18n="ai.mode.free">自由对话</button>
-              <button type="button" class="ai-mode-tab" data-ai-mode="prompt" data-i18n="ai.mode.prompt">写提示词</button>
-              <button type="button" class="ai-mode-tab" data-ai-mode="refine" data-i18n="ai.mode.refine">优化调整</button>
-              <button type="button" class="ai-mode-tab" data-ai-mode="workflow" data-i18n="ai.mode.workflow">工作流</button>
-              <button type="button" class="ai-mode-tab" data-ai-mode="basic" data-i18n="ai.mode.basic">写基本信息</button>
-            </nav>
-            <p class="ai-mode-hint muted sm" id="ai-mode-hint"></p>
-            <div class="ai-messages" id="ai-history"></div>
-            <div class="ai-compose">
-              <textarea id="ai-input" rows="3" data-i18n-placeholder="ai.inputPlaceholder" placeholder="描述想要的图标…"></textarea>
-              <div class="ai-compose-bar">
-                <span class="muted sm" data-i18n="ai.composeHint">Enter 发送 · Shift+Enter 换行 · 对话按资源与模式分别保留</span>
-                <div class="ai-compose-btns">
-                  <button type="button" class="btn sm ghost" data-action="ai-clear" data-i18n="ai.clear">清空</button>
-                  <button type="button" class="btn sm primary" id="ai-send-btn" data-action="ai-send" data-i18n="ai.send">发送</button>
+        <div class="tab-body hidden gen-tab-body" id="tab-basic">
+          <form class="gen-tab-layout" id="form-basic">
+            <section class="gen-tab-section">
+              <div class="settings-section-hero settings-section-hero--basic">
+                <div class="settings-section-hero-glow" aria-hidden="true"></div>
+                <div class="settings-section-hero-icon" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/></svg>
+                </div>
+                <div class="settings-section-hero-copy">
+                  <h3 class="settings-section-title" data-i18n="form.basicTabTitle">基本信息</h3>
+                  <p class="settings-section-desc muted sm" data-i18n="form.basicTabDesc">文件名、尺寸、说明与生图模型；决定该资源如何参与批量生成。</p>
                 </div>
               </div>
-            </div>
+            </section>
+
+            <section class="gen-tab-section">
+              <div class="gen-tab-section-head">
+                <span class="gen-tab-section-title" data-i18n="form.basicSectionIdentity">资源信息</span>
+              </div>
+              <div class="gen-tab-panel">
+                <div class="settings-field-grid settings-field-grid--2">
+                  <label class="gen-field">
+                    <span data-i18n="form.id">ID</span>
+                    <input name="id" readonly />
+                  </label>
+                  <label class="gen-field">
+                    <span data-i18n="form.filename">文件名</span>
+                    <input name="filename" autocomplete="off" spellcheck="false" />
+                  </label>
+                  <label class="gen-field">
+                    <span data-i18n="form.category">分类</span>
+                    <select name="category" id="asset-category-select"></select>
+                  </label>
+                  <label class="gen-field">
+                    <span data-i18n="form.seed">Seed</span>
+                    <input name="seed" autocomplete="off" spellcheck="false" data-i18n-placeholder="form.seedPlaceholder" placeholder="留空=全局" />
+                  </label>
+                  <label class="gen-field">
+                    <span data-i18n="form.width">宽度</span>
+                    <input name="width" type="number" min="1" />
+                  </label>
+                  <label class="gen-field">
+                    <span data-i18n="form.height">高度</span>
+                    <input name="height" type="number" min="1" />
+                  </label>
+                </div>
+                <label class="gen-field">
+                  <span data-i18n="form.subject">说明</span>
+                  <input name="subject" autocomplete="off" spellcheck="false" />
+                </label>
+              </div>
+            </section>
+
+            <section class="gen-tab-section">
+              <div class="gen-tab-section-head">
+                <span class="gen-tab-section-title" data-i18n="form.basicSectionModel">生图模型</span>
+              </div>
+              <div class="gen-tab-panel">
+                <label class="gen-field">
+                  <span data-i18n="form.checkpoint">Checkpoint</span>
+                  <select name="checkpoint" id="asset-ckpt"></select>
+                </label>
+              </div>
+            </section>
+
+            <section class="gen-tab-section">
+              <div class="gen-tab-section-head">
+                <span class="gen-tab-section-title" data-i18n="form.basicSectionOptions">生成选项</span>
+              </div>
+              <div class="gen-tab-panel">
+                <label class="check check-modern gen-tab-check">
+                  <input name="enabled" type="checkbox" />
+                  <span class="check-ui"></span>
+                  <span class="check-text" data-i18n="form.enabled">启用（参与批量生成）</span>
+                </label>
+                <p class="settings-hint muted sm" data-i18n="form.enabledHint">未勾选时仍可右键单独「生成此资源」；整类批量只会处理已启用资源</p>
+                <p class="settings-subhead" data-i18n="form.removeBg">剔除背景</p>
+                <div class="radio-seg gen-mode-seg gen-mode-seg--compact" role="radiogroup">
+                  <label class="radio-seg-item">
+                    <input type="radio" name="remove_bg_mode" value="inherit" />
+                    <span class="radio-seg-label" data-i18n="form.removeBgInherit">跟随分类</span>
+                  </label>
+                  <label class="radio-seg-item">
+                    <input type="radio" name="remove_bg_mode" value="remove" />
+                    <span class="radio-seg-label" data-i18n="form.removeBgRemove">剔除</span>
+                  </label>
+                  <label class="radio-seg-item">
+                    <input type="radio" name="remove_bg_mode" value="keep" />
+                    <span class="radio-seg-label" data-i18n="form.removeBgKeep">不剔除</span>
+                  </label>
+                </div>
+                <div class="gen-tab-actions">
+                  <button type="submit" class="btn primary" data-i18n="form.saveBasic">保存基本信息</button>
+                </div>
+              </div>
+            </section>
+          </form>
+        </div>
+
+        <div class="tab-body hidden gen-tab-body" id="tab-category">
+          <form class="gen-tab-layout" id="form-category">
+            <section class="gen-tab-section">
+              <div class="settings-section-hero settings-section-hero--category">
+                <div class="settings-section-hero-glow" aria-hidden="true"></div>
+                <div class="settings-section-hero-icon" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M2 10h20"/></svg>
+                </div>
+                <div class="settings-section-hero-copy">
+                  <h3 class="settings-section-title" data-i18n="form.categoryTabTitle">分类设置</h3>
+                  <p class="settings-section-desc muted sm" data-i18n="form.categoryTabDesc">路径、默认 checkpoint 与通用 prompt；该分类下资源的默认继承项。</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="gen-tab-section">
+              <div class="gen-tab-section-head">
+                <span class="gen-tab-section-title" data-i18n="form.categorySectionPaths">路径</span>
+              </div>
+              <div class="gen-tab-panel">
+                <label class="gen-field">
+                  <span data-i18n="form.sourcePath">source</span>
+                  <input name="source" autocomplete="off" spellcheck="false" />
+                </label>
+                <label class="gen-field">
+                  <span data-i18n="form.inboxPath">inbox</span>
+                  <input name="inbox" autocomplete="off" spellcheck="false" />
+                </label>
+                <label class="gen-field">
+                  <span data-i18n="form.enginePath">游戏引擎</span>
+                  <input name="unity" autocomplete="off" spellcheck="false" />
+                </label>
+              </div>
+            </section>
+
+            <section class="gen-tab-section">
+              <div class="gen-tab-section-head">
+                <span class="gen-tab-section-title" data-i18n="form.categorySectionDefaults">默认配置</span>
+              </div>
+              <div class="gen-tab-panel">
+                <label class="gen-field">
+                  <span data-i18n="form.checkpoint">Checkpoint</span>
+                  <select name="checkpoint" id="cat-ckpt"></select>
+                </label>
+                <label class="check check-modern gen-tab-check">
+                  <input name="alpha_matte" type="checkbox" />
+                  <span class="check-ui"></span>
+                  <span class="check-text" data-i18n="form.alphaMatte">分类默认剔除纯色背景</span>
+                </label>
+              </div>
+            </section>
+
+            <section class="gen-tab-section">
+              <div class="gen-tab-section-head">
+                <span class="gen-tab-section-title" data-i18n="form.categorySectionPrompts">通用提示词</span>
+              </div>
+              <div class="gen-tab-panel">
+                <label class="gen-field">
+                  <span data-i18n="form.positiveCommon">分类通用正向</span>
+                  <textarea name="positive_common" rows="3" spellcheck="false"></textarea>
+                </label>
+                <label class="gen-field">
+                  <span data-i18n="form.negativeCommon">分类通用负向</span>
+                  <textarea name="negative_common" rows="3" spellcheck="false"></textarea>
+                </label>
+                <div class="gen-tab-actions">
+                  <button type="submit" class="btn primary" data-i18n="form.saveCategory">保存分类设置</button>
+                </div>
+              </div>
+            </section>
+          </form>
+        </div>
+
+        <div class="tab-body hidden gen-tab-body" id="tab-comfyui">
+          <div class="gen-tab-layout">
+            <section class="gen-tab-section">
+              <div class="settings-section-hero settings-section-hero--comfy">
+                <div class="settings-section-hero-glow" aria-hidden="true"></div>
+                <div class="settings-section-hero-icon" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h7v7h-7z"/><circle cx="17.5" cy="17.5" r="1.5"/></svg>
+                </div>
+                <div class="settings-section-hero-copy">
+                  <h3 class="settings-section-title" data-i18n="form.comfyTabTitle">ComfyUI 提示词与工作流</h3>
+                  <p class="settings-section-desc muted sm" data-i18n="form.comfyTabDesc">四段 prompt 与工作流 JSON；生成模式决定文生图、图生图或图像编辑。</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="gen-tab-section">
+              <div class="gen-tab-section-head">
+                <span class="gen-tab-section-title" data-i18n="form.genMode">生成模式</span>
+              </div>
+              <div class="gen-tab-panel">
+                <div class="radio-seg gen-mode-seg" role="radiogroup" id="gen-mode-seg">
+                  <label class="radio-seg-item">
+                    <input type="radio" name="gen_mode" value="txt2img" checked />
+                    <span class="radio-seg-label" data-i18n="form.genModeTxt2img">文生图</span>
+                  </label>
+                  <label class="radio-seg-item">
+                    <input type="radio" name="gen_mode" value="img2img" />
+                    <span class="radio-seg-label" data-i18n="form.genModeImg2img">图生图</span>
+                  </label>
+                  <label class="radio-seg-item">
+                    <input type="radio" name="gen_mode" value="redraw" />
+                    <span class="radio-seg-label" data-i18n="form.genModeRedraw">图像编辑</span>
+                  </label>
+                </div>
+                <div id="img2img-panel" class="gen-ref-panel hidden">
+                  <div id="ref-image-section" class="ref-path-block hidden">
+                    <div class="ref-path-head">
+                      <span class="ref-path-title" data-i18n="form.refImage">参考图</span>
+                    </div>
+                    <div class="ref-path-picker">
+                      <input
+                        type="text"
+                        id="ref-image-path"
+                        class="ref-path-input"
+                        data-i18n-placeholder="form.refImagePlaceholder"
+                        placeholder="相对 ArtPipeline 或绝对路径"
+                        spellcheck="false"
+                      />
+                      <button type="button" class="ref-path-browse" data-action="pick-ref-image" data-i18n="form.pickRefImage">浏览…</button>
+                    </div>
+                  </div>
+                  <div id="redraw-source-section" class="ref-path-block ref-path-readonly hidden">
+                    <div class="ref-path-head">
+                      <span class="ref-path-title" data-i18n="form.redrawSource">参考图</span>
+                      <span class="ref-path-tag" data-i18n="form.redrawSourceTag">source 原图</span>
+                    </div>
+                    <div class="ref-path-display" id="redraw-source-path">—</div>
+                  </div>
+                  <label class="gen-field denoise-field">
+                    <span data-i18n="form.img2imgDenoise">参考强度 (denoise)</span>
+                    <div class="denoise-row">
+                      <input type="range" id="img2img-denoise-range" min="0.01" max="1" step="0.01" value="0.65" />
+                      <input type="number" id="img2img-denoise" min="0.01" max="1" step="0.01" value="0.65" />
+                    </div>
+                  </label>
+                  <p class="settings-hint muted sm gen-ref-hint" id="gen-ref-hint" data-i18n="form.img2imgHint">图生图：参考图将上传至 ComfyUI，按 denoise 重绘。</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="gen-tab-section">
+              <div class="gen-tab-section-head">
+                <span class="gen-tab-section-title" data-i18n="form.genTabPrompts">提示词</span>
+              </div>
+              <div class="gen-tab-panel">
+                <div id="prompt-segments" class="prompt-segments">
+                  <label class="gen-field"><span data-i18n="form.positivePrefix">画质前缀</span><textarea id="positive-prefix-text" rows="3" spellcheck="false" data-i18n-placeholder="form.positivePrefixPlaceholder"></textarea></label>
+                  <label class="gen-field"><span data-i18n="form.positiveSubject">主核心主体</span><textarea id="positive-subject-text" rows="4" spellcheck="false" data-i18n-placeholder="form.positiveSubjectPlaceholder"></textarea></label>
+                  <label class="gen-field"><span data-i18n="form.positiveScene">环境场景道具</span><textarea id="positive-scene-text" rows="4" spellcheck="false" data-i18n-placeholder="form.positiveScenePlaceholder"></textarea></label>
+                  <label class="gen-field"><span data-i18n="form.positiveLight">光影色彩氛围</span><textarea id="positive-light-text" rows="3" spellcheck="false" data-i18n-placeholder="form.positiveLightPlaceholder"></textarea></label>
+                </div>
+                <p class="settings-hint muted sm" data-i18n="form.promptSegmentsHint">四段会在生成时自动合并；SDXL 工作流中 G=前缀+主体+场景，L=主体+场景+光影。</p>
+                <label class="gen-field gen-field--full"><span data-i18n="form.positiveMerged">合并正向（预览）</span><textarea id="positive-merged-preview" rows="4" readonly spellcheck="false" data-i18n-placeholder="form.positiveMergedPlaceholder"></textarea></label>
+                <label class="gen-field"><span data-i18n="form.negative">负向 prompt</span><textarea id="negative-text" rows="4" spellcheck="false" data-i18n-placeholder="form.negativePlaceholder"></textarea></label>
+                <div class="gen-tab-actions">
+                  <button type="button" class="btn primary" data-action="save-prompts" data-i18n="form.savePrompts">保存提示词</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="gen-tab-section">
+              <div class="gen-tab-section-head">
+                <span class="gen-tab-section-title" data-i18n="form.genTabWorkflow">工作流</span>
+              </div>
+              <div class="gen-tab-panel">
+                <section class="wf-template-panel">
+                  <p class="wf-template-intro muted sm" data-i18n="form.workflowPresetIntro">模板决定 ComfyUI 的采样方式（单次 / 双通道 / 两阶段 / 图生图）。加载后保存工作流，生成时才会生效。</p>
+                  <div class="wf-template-bar">
+                    <label class="gen-field wf-template-select">
+                      <span data-i18n="form.workflowPreset">工作流模板</span>
+                      <select id="workflow-preset-select" class="input-select"></select>
+                    </label>
+                    <div class="wf-template-actions">
+                      <button type="button" class="btn sm" data-action="load-wf-preset" data-i18n="form.loadWorkflowPreset">加载模板</button>
+                      <button type="button" class="btn sm ghost" data-action="load-default-wf" data-i18n="form.defaultTemplate">推荐默认</button>
+                    </div>
+                  </div>
+                  <div class="wf-preset-detail hidden" id="workflow-preset-detail">
+                    <div class="wf-preset-detail-head">
+                      <span class="wf-preset-mode-badge" id="workflow-preset-mode"></span>
+                    </div>
+                    <p class="wf-preset-desc" id="workflow-preset-desc"></p>
+                    <dl class="wf-preset-meta">
+                      <div class="wf-preset-meta-row">
+                        <dt data-i18n="form.wfHowItWorks">工作方式</dt>
+                        <dd id="workflow-preset-how"></dd>
+                      </div>
+                      <div class="wf-preset-meta-row">
+                        <dt data-i18n="form.wfRecommended">推荐场景</dt>
+                        <dd id="workflow-preset-recommended"></dd>
+                      </div>
+                    </dl>
+                  </div>
+                </section>
+                <label class="gen-field gen-field--full"><span data-i18n="form.workflow">工作流 JSON</span><textarea id="workflow-text" rows="12" spellcheck="false"></textarea></label>
+                <div class="gen-tab-actions">
+                  <button type="button" class="btn" data-action="validate-wf" data-i18n="form.validateJson">校验 JSON</button>
+                  <button type="button" class="btn primary" data-action="save-wf" data-i18n="form.saveWorkflow">保存工作流</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div class="tab-body hidden gen-tab-body" id="tab-cloud" data-provider="">
+          <div class="gen-tab-layout">
+            <section class="gen-tab-section">
+              <div class="settings-section-hero settings-section-hero--cloud" id="cloud-tab-hero">
+                <div class="settings-section-hero-glow" aria-hidden="true"></div>
+                <div class="settings-section-hero-icon gen-tab-provider-icon" aria-hidden="true">
+                  <span class="cloud-api-mark" id="cloud-tab-mark"></span>
+                </div>
+                <div class="settings-section-hero-copy">
+                  <h3 class="settings-section-title" id="cloud-tab-hero-title">—</h3>
+                  <p class="settings-section-desc muted sm" id="cloud-tab-hero-desc"></p>
+                </div>
+              </div>
+            </section>
+
+            <section class="gen-tab-section">
+              <div class="gen-tab-section-head">
+                <span class="gen-tab-section-title" data-i18n="form.genMode">生成模式</span>
+              </div>
+              <div class="gen-tab-panel">
+                <div class="radio-seg gen-mode-seg" role="radiogroup" id="cloud-gen-mode-seg">
+                  <label class="radio-seg-item">
+                    <input type="radio" name="cloud_gen_mode" value="text_to_image" checked />
+                    <span class="radio-seg-label" data-i18n="form.genModeTextToImage">文生图</span>
+                  </label>
+                  <label class="radio-seg-item">
+                    <input type="radio" name="cloud_gen_mode" value="image_to_image" />
+                    <span class="radio-seg-label" data-i18n="form.genModeImageToImage">图生图</span>
+                  </label>
+                  <label class="radio-seg-item">
+                    <input type="radio" name="cloud_gen_mode" value="image_edit" />
+                    <span class="radio-seg-label" data-i18n="form.genModeImageEdit">图像编辑</span>
+                  </label>
+                </div>
+                <p class="settings-hint muted sm" id="cloud-gen-mode-desc"></p>
+                <div id="cloud-ref-panel" class="gen-ref-panel hidden">
+                  <div id="cloud-ref-image-section" class="ref-path-block hidden">
+                    <div class="ref-path-head">
+                      <span class="ref-path-title" data-i18n="form.refImage">参考图</span>
+                    </div>
+                    <div class="ref-path-picker">
+                      <input type="text" id="cloud-ref-image-path" class="ref-path-input" data-i18n-placeholder="form.refImagePlaceholder" spellcheck="false" />
+                      <button type="button" class="ref-path-browse" data-action="pick-cloud-ref-image" data-i18n="form.pickRefImage">浏览…</button>
+                    </div>
+                  </div>
+                  <div id="cloud-edit-source-section" class="ref-path-block ref-path-readonly hidden">
+                    <div class="ref-path-head">
+                      <span class="ref-path-title" data-i18n="form.redrawSource">底图</span>
+                      <span class="ref-path-tag" data-i18n="form.redrawSourceTag">source 原图</span>
+                    </div>
+                    <div class="ref-path-display" id="cloud-edit-source-path">—</div>
+                  </div>
+                  <label class="gen-field denoise-field">
+                    <span data-i18n="form.cloudStrength">参考强度</span>
+                    <div class="denoise-row">
+                      <input type="range" id="cloud-strength-range" min="0.01" max="1" step="0.01" value="0.65" />
+                      <input type="number" id="cloud-strength" min="0.01" max="1" step="0.01" value="0.65" />
+                    </div>
+                  </label>
+                  <p class="settings-hint muted sm" id="cloud-gen-ref-hint"></p>
+                </div>
+              </div>
+            </section>
+
+            <section class="gen-tab-section">
+              <div class="gen-tab-section-head">
+                <span class="gen-tab-section-title" data-i18n="form.genTabCloudPrompts">云端提示词</span>
+              </div>
+              <div class="gen-tab-panel">
+                <p class="settings-hint muted sm" data-i18n="form.cloudPromptHint">云端 API 使用单段 prompt；无需四段拆分与工作流 JSON。</p>
+                <label class="gen-field gen-field--full"><span data-i18n="form.cloudPrompt">正向 prompt</span><textarea id="cloud-prompt-text" rows="6" spellcheck="false"></textarea></label>
+                <label class="gen-field"><span data-i18n="form.cloudNegative">负向 prompt</span><textarea id="cloud-negative-text" rows="3" spellcheck="false"></textarea></label>
+                <div class="gen-tab-actions">
+                  <button type="button" class="btn primary" data-action="save-cloud-prompts" data-i18n="form.saveCloudPrompts">保存云提示词</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div class="tab-body hidden gen-tab-body gen-tab-body--fill" id="tab-ai">
+          <div class="gen-tab-layout gen-tab-layout--fill">
+            <section class="gen-tab-section gen-tab-section--compact">
+              <div class="settings-section-hero settings-section-hero--ai settings-section-hero--compact">
+                <div class="settings-section-hero-glow" aria-hidden="true"></div>
+                <div class="settings-section-hero-icon" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a7 7 0 0 1 7 7c0 2.5-1.2 4.7-3 6.1V19a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.9A7 7 0 0 1 5 10a7 7 0 0 1 7-7z"/><path d="M9.5 21h5"/><path d="M10 8h.01M14 8h.01M9.5 11.5a2.5 2.5 0 0 0 3 0"/></svg>
+                </div>
+                <div class="settings-section-hero-copy">
+                  <h3 class="settings-section-title" data-i18n="form.aiTabTitle">AI 助手</h3>
+                  <p class="settings-section-desc muted sm" data-i18n="form.aiTabDesc">DeepSeek 驱动；按模式编写提示词、优化工作流或一次配置多项内容。</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="gen-tab-section gen-tab-section--fill">
+              <div class="gen-tab-panel gen-tab-panel--fill ai-panel">
+                <nav class="ai-mode-tabs radio-seg gen-mode-seg" id="ai-mode-tabs" role="tablist">
+                  <button type="button" class="ai-mode-tab radio-seg-item active" data-ai-mode="free" role="tab" data-i18n="ai.mode.free">自由对话</button>
+                  <button type="button" class="ai-mode-tab radio-seg-item" data-ai-mode="prompt" role="tab" data-i18n="ai.mode.prompt">写提示词</button>
+                  <button type="button" class="ai-mode-tab radio-seg-item" data-ai-mode="refine" role="tab" data-i18n="ai.mode.refine">优化调整</button>
+                  <button type="button" class="ai-mode-tab radio-seg-item" data-ai-mode="workflow" role="tab" data-i18n="ai.mode.workflow">工作流</button>
+                  <button type="button" class="ai-mode-tab radio-seg-item" data-ai-mode="basic" role="tab" data-i18n="ai.mode.basic">写基本信息</button>
+                </nav>
+                <p class="ai-mode-hint settings-hint muted sm" id="ai-mode-hint"></p>
+                <div class="ai-messages" id="ai-history"></div>
+                <div class="ai-compose">
+                  <textarea id="ai-input" class="gen-field-textarea" rows="3" data-i18n-placeholder="ai.inputPlaceholder" placeholder="描述想要的图标…"></textarea>
+                  <div class="ai-compose-bar">
+                    <span class="muted sm" data-i18n="ai.composeHint">Enter 发送 · Shift+Enter 换行 · 对话按资源与模式分别保留</span>
+                    <div class="ai-compose-btns">
+                      <button type="button" class="btn sm ghost" data-action="ai-clear" data-i18n="ai.clear">清空</button>
+                      <button type="button" class="btn sm primary" id="ai-send-btn" data-action="ai-send" data-i18n="ai.send">发送</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
         </div>
 
         <div class="tab-body hidden" id="tab-settings">
-          <form class="form-grid" id="form-settings">
-            <label class="span2"><span data-i18n="form.projectRoot">游戏引擎项目根</span><input name="project_root" /></label>
-            <label class="span2"><span data-i18n="form.artRoot">ArtPipeline 根</span><input name="art_pipeline_root" /></label>
-            <button type="button" class="btn sm ghost span2" data-action="autodetect-paths" data-i18n="form.autodetectPaths">自动检测路径</button>
-            <label class="span2"><span data-i18n="form.logDir">运行日志目录</span><input name="log_dir" placeholder="" /></label>
-            <p class="muted sm span2" id="log-dir-hint"></p>
-            <button type="button" class="btn sm ghost span2" data-action="open-log-dir" data-i18n="form.openLogDir">打开目录</button>
-            <label class="span2"><span data-i18n="form.comfyUrl">ComfyUI URL</span><input name="comfyui_url" /></label>
-            <p class="muted sm span2" data-i18n="form.comfyUrlHint">用于连接 ComfyUI、拉取 checkpoint 列表与提交生图任务；无需在全局单独配置 checkpoint</p>
-            <label><span data-i18n="form.steps">Steps</span><input name="steps" type="number" /></label>
-            <label><span data-i18n="form.cfg">CFG</span><input name="cfg" type="number" step="0.1" /></label>
-            <label><span data-i18n="form.sampler">Sampler</span><input name="sampler" /></label>
-            <label><span data-i18n="form.scheduler">Scheduler</span><input name="scheduler" /></label>
-            <label><span data-i18n="form.globalSeed">全局 Seed</span><input name="seed" /></label>
-            <label class="span2"><span data-i18n="form.deepseekKey">DeepSeek API Key</span><input name="deepseek_api_key" type="password" /></label>
-            <label><span data-i18n="form.deepseekModel">DeepSeek 模型</span><select name="deepseek_model">
-              <option value="deepseek-v4-flash">deepseek-v4-flash</option>
-              <option value="deepseek-v4-pro">deepseek-v4-pro</option>
-            </select></label>
-            <div class="span2 form-actions">
-              <button type="button" class="btn ghost" data-action="init-workflows" data-i18n="form.initWorkflows">初始化缺失工作流</button>
-              <button type="submit" class="btn primary" data-i18n="form.saveSettings">保存全局设置</button>
+          <form class="settings-layout" id="form-settings">
+
+            <section class="settings-section">
+              <div class="settings-section-hero settings-section-hero--paths">
+                <div class="settings-section-hero-glow" aria-hidden="true"></div>
+                <div class="settings-section-hero-icon" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                </div>
+                <div class="settings-section-hero-copy">
+                  <h3 class="settings-section-title" data-i18n="form.settingsPathsTitle">路径与工作区</h3>
+                  <p class="settings-section-desc muted sm" data-i18n="form.settingsPathsDesc">配置游戏工程与 ArtPipeline 根目录；日志目录留空则使用系统默认位置。</p>
+                </div>
+              </div>
+              <div class="settings-panel">
+                <label class="settings-field">
+                  <span data-i18n="form.projectRoot">游戏引擎项目根</span>
+                  <input name="project_root" autocomplete="off" spellcheck="false" />
+                </label>
+                <label class="settings-field">
+                  <span data-i18n="form.artRoot">ArtPipeline 根</span>
+                  <input name="art_pipeline_root" autocomplete="off" spellcheck="false" />
+                </label>
+                <div class="settings-panel-actions">
+                  <button type="button" class="btn sm ghost" data-action="autodetect-paths" data-i18n="form.autodetectPaths">自动检测路径</button>
+                </div>
+                <div class="settings-panel-divider" aria-hidden="true"></div>
+                <label class="settings-field">
+                  <span data-i18n="form.logDir">运行日志目录</span>
+                  <input name="log_dir" placeholder="" autocomplete="off" spellcheck="false" />
+                </label>
+                <p class="settings-hint muted sm" id="log-dir-hint"></p>
+                <div class="settings-panel-actions">
+                  <button type="button" class="btn sm ghost" data-action="open-log-dir" data-i18n="form.openLogDir">打开目录</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <div class="settings-section-hero settings-section-hero--comfy">
+                <div class="settings-section-hero-glow" aria-hidden="true"></div>
+                <div class="settings-section-hero-icon" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h7v7h-7z"/><circle cx="17.5" cy="17.5" r="1.5"/></svg>
+                </div>
+                <div class="settings-section-hero-copy">
+                  <h3 class="settings-section-title" data-i18n="form.settingsComfyTitle">ComfyUI 本地生图</h3>
+                  <p class="settings-section-desc muted sm" data-i18n="form.settingsComfyDesc">连接本地 ComfyUI 服务，并设置全局采样默认值（可被工作流覆盖）。</p>
+                </div>
+              </div>
+              <div class="settings-panel">
+                <label class="settings-field">
+                  <span data-i18n="form.comfyUrl">ComfyUI URL</span>
+                  <input name="comfyui_url" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:8188" />
+                </label>
+                <p class="settings-hint muted sm" data-i18n="form.comfyUrlHint">用于连接 ComfyUI、拉取 checkpoint 列表与提交生图任务；无需在全局单独配置 checkpoint</p>
+                <p class="settings-subhead" data-i18n="form.settingsSamplingTitle">采样默认值</p>
+                <div class="settings-field-grid settings-field-grid--2">
+                  <label class="settings-field">
+                    <span data-i18n="form.steps">Steps</span>
+                    <input name="steps" type="number" min="1" />
+                  </label>
+                  <label class="settings-field">
+                    <span data-i18n="form.cfg">CFG</span>
+                    <input name="cfg" type="number" step="0.1" min="0" />
+                  </label>
+                  <label class="settings-field">
+                    <span data-i18n="form.sampler">Sampler</span>
+                    <input name="sampler" autocomplete="off" spellcheck="false" />
+                  </label>
+                  <label class="settings-field">
+                    <span data-i18n="form.scheduler">Scheduler</span>
+                    <input name="scheduler" autocomplete="off" spellcheck="false" />
+                  </label>
+                  <label class="settings-field settings-field--compact">
+                    <span data-i18n="form.globalSeed">全局 Seed</span>
+                    <input name="seed" autocomplete="off" spellcheck="false" data-i18n-placeholder="form.seedPlaceholder" placeholder="留空=随机" />
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <div class="settings-section-hero settings-section-hero--ai">
+                <div class="settings-section-hero-glow" aria-hidden="true"></div>
+                <div class="settings-section-hero-icon" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a7 7 0 0 1 7 7c0 2.5-1.2 4.7-3 6.1V19a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.9A7 7 0 0 1 5 10a7 7 0 0 1 7-7z"/><path d="M9.5 21h5"/><path d="M10 8h.01M14 8h.01M9.5 11.5a2.5 2.5 0 0 0 3 0"/></svg>
+                </div>
+                <div class="settings-section-hero-copy">
+                  <h3 class="settings-section-title" data-i18n="form.settingsAiTitle">AI 助手</h3>
+                  <p class="settings-section-desc muted sm" data-i18n="form.settingsAiDesc">DeepSeek 用于提示词生成、优化与工作流建议；密钥仅存于本地配置。</p>
+                </div>
+              </div>
+              <div class="settings-panel settings-panel--flat">
+                <article class="cloud-api-card" data-provider="deepseek">
+                  <header class="cloud-api-card-head">
+                    <div class="cloud-api-brand">
+                      <span class="cloud-api-mark cloud-api-mark--deepseek" aria-hidden="true"></span>
+                      <div>
+                        <strong class="cloud-api-name">DeepSeek</strong>
+                        <span class="cloud-api-region" data-i18n="form.settingsAiBadge">AI 助手</span>
+                      </div>
+                    </div>
+                    <div class="cloud-api-status" data-status="idle">
+                      <span class="cloud-api-status-dot" aria-hidden="true"></span>
+                      <span class="cloud-api-status-text" data-i18n="form.cloudStatusIdle">未验证</span>
+                    </div>
+                  </header>
+                  <div class="cloud-api-card-body">
+                    <label class="cloud-api-field">
+                      <span data-i18n="form.deepseekKey">DeepSeek API Key</span>
+                      <input name="deepseek_api_key" type="password" autocomplete="off" data-settings-api-field="deepseek" />
+                    </label>
+                    <label class="cloud-api-field cloud-api-field--inline-select">
+                      <span data-i18n="form.deepseekModel">DeepSeek 模型</span>
+                      <select name="deepseek_model" data-settings-api-field="deepseek">
+                        <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                        <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+                      </select>
+                    </label>
+                  </div>
+                  <footer class="cloud-api-card-foot">
+                    <button type="button" class="btn sm ghost" data-action="test-deepseek-api" data-i18n="form.cloudTest">测试连接</button>
+                  </footer>
+                </article>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <div class="settings-section-hero settings-section-hero--cloud">
+                <div class="settings-section-hero-glow" aria-hidden="true"></div>
+                <div class="settings-section-hero-icon" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 14l.75 2.25L22 17l-2.25.75L19 20l-.75-2.25L16 17l2.25-.75L19 14z"/></svg>
+                </div>
+                <div class="settings-section-hero-copy">
+                  <h3 class="settings-section-title" data-i18n="form.cloudApiSectionTitle">云端生图</h3>
+                  <p class="settings-section-desc muted sm" data-i18n="form.cloudApiSectionDesc">接入第三方 API，与 ComfyUI 本地模型并列可选。填写密钥后点击「测试连接」验证可用性。</p>
+                </div>
+              </div>
+
+              <div class="cloud-api-stack">
+                <article class="cloud-api-card" data-provider="stability">
+                  <header class="cloud-api-card-head">
+                    <div class="cloud-api-brand">
+                      <span class="cloud-api-mark cloud-api-mark--stability" aria-hidden="true"></span>
+                      <div>
+                        <strong class="cloud-api-name">Stability AI</strong>
+                        <span class="cloud-api-region" data-i18n="form.cloudRegionGlobal">海外</span>
+                      </div>
+                    </div>
+                    <div class="cloud-api-status" data-status="idle">
+                      <span class="cloud-api-status-dot" aria-hidden="true"></span>
+                      <span class="cloud-api-status-text" data-i18n="form.cloudStatusIdle">未验证</span>
+                    </div>
+                  </header>
+                  <div class="cloud-api-card-body">
+                    <label class="cloud-api-field">
+                      <span data-i18n="form.cloudKeyStability">Stability AI API Key</span>
+                      <input name="cloud_api_keys.stability" type="password" autocomplete="off" data-cloud-field="stability" />
+                    </label>
+                  </div>
+                  <footer class="cloud-api-card-foot">
+                    <button type="button" class="btn sm ghost" data-action="test-cloud-api" data-provider="stability" data-i18n="form.cloudTest">测试连接</button>
+                  </footer>
+                </article>
+
+                <article class="cloud-api-card" data-provider="dashscope">
+                  <header class="cloud-api-card-head">
+                    <div class="cloud-api-brand">
+                      <span class="cloud-api-mark cloud-api-mark--dashscope" aria-hidden="true"></span>
+                      <div>
+                        <strong class="cloud-api-name" data-i18n="form.cloudProviderDashscope">阿里云万相</strong>
+                        <span class="cloud-api-region" data-i18n="form.cloudRegionCn">国内</span>
+                      </div>
+                    </div>
+                    <div class="cloud-api-status" data-status="idle">
+                      <span class="cloud-api-status-dot" aria-hidden="true"></span>
+                      <span class="cloud-api-status-text" data-i18n="form.cloudStatusIdle">未验证</span>
+                    </div>
+                  </header>
+                  <div class="cloud-api-card-body">
+                    <label class="cloud-api-field">
+                      <span data-i18n="form.cloudKeyDashscope">DashScope API Key</span>
+                      <input name="cloud_api_keys.dashscope" type="password" autocomplete="off" data-cloud-field="dashscope" />
+                    </label>
+                  </div>
+                  <footer class="cloud-api-card-foot">
+                    <button type="button" class="btn sm ghost" data-action="test-cloud-api" data-provider="dashscope" data-i18n="form.cloudTest">测试连接</button>
+                  </footer>
+                </article>
+
+                <article class="cloud-api-card" data-provider="tencent">
+                  <header class="cloud-api-card-head">
+                    <div class="cloud-api-brand">
+                      <span class="cloud-api-mark cloud-api-mark--tencent" aria-hidden="true"></span>
+                      <div>
+                        <strong class="cloud-api-name" data-i18n="form.cloudProviderTencent">腾讯混元</strong>
+                        <span class="cloud-api-region" data-i18n="form.cloudRegionCn">国内</span>
+                      </div>
+                    </div>
+                    <div class="cloud-api-status" data-status="idle">
+                      <span class="cloud-api-status-dot" aria-hidden="true"></span>
+                      <span class="cloud-api-status-text" data-i18n="form.cloudStatusIdle">未验证</span>
+                    </div>
+                  </header>
+                  <div class="cloud-api-card-body cloud-api-field-grid">
+                    <label class="cloud-api-field">
+                      <span data-i18n="form.cloudKeyTencentId">SecretId</span>
+                      <input name="cloud_api_keys.tencent_secret_id" autocomplete="off" data-cloud-field="tencent_secret_id" />
+                    </label>
+                    <label class="cloud-api-field">
+                      <span data-i18n="form.cloudKeyTencentKey">SecretKey</span>
+                      <input name="cloud_api_keys.tencent_secret_key" type="password" autocomplete="off" data-cloud-field="tencent_secret_key" />
+                    </label>
+                  </div>
+                  <footer class="cloud-api-card-foot">
+                    <button type="button" class="btn sm ghost" data-action="test-cloud-api" data-provider="tencent" data-i18n="form.cloudTest">测试连接</button>
+                  </footer>
+                </article>
+
+                <article class="cloud-api-card" data-provider="volcengine">
+                  <header class="cloud-api-card-head">
+                    <div class="cloud-api-brand">
+                      <span class="cloud-api-mark cloud-api-mark--volcengine" aria-hidden="true"></span>
+                      <div>
+                        <strong class="cloud-api-name" data-i18n="form.cloudProviderVolcengine">火山即梦</strong>
+                        <span class="cloud-api-region" data-i18n="form.cloudRegionCn">国内</span>
+                      </div>
+                    </div>
+                    <div class="cloud-api-status" data-status="idle">
+                      <span class="cloud-api-status-dot" aria-hidden="true"></span>
+                      <span class="cloud-api-status-text" data-i18n="form.cloudStatusIdle">未验证</span>
+                    </div>
+                  </header>
+                  <div class="cloud-api-card-body">
+                    <label class="cloud-api-field">
+                      <span data-i18n="form.cloudKeyVolcengine">方舟 API Key</span>
+                      <input name="cloud_api_keys.volcengine" type="password" autocomplete="off" data-cloud-field="volcengine" />
+                    </label>
+                    <label class="cloud-api-field">
+                      <span data-i18n="form.cloudKeyVolcengineEndpoint">Seedream 模型 ID</span>
+                      <input name="cloud_api_keys.volcengine_endpoint" placeholder="doubao-seedream-4-0" autocomplete="off" data-cloud-field="volcengine_endpoint" />
+                    </label>
+                  </div>
+                  <footer class="cloud-api-card-foot">
+                    <button type="button" class="btn sm ghost" data-action="test-cloud-api" data-provider="volcengine" data-i18n="form.cloudTest">测试连接</button>
+                  </footer>
+                </article>
+              </div>
+
+              <div class="cloud-api-global">
+                <label class="cloud-api-field cloud-api-field--inline">
+                  <span data-i18n="form.cloudMaxConcurrent">云任务并发数</span>
+                  <input name="cloud_max_concurrent" type="number" min="1" max="16" value="3" />
+                </label>
+                <p class="muted sm" data-i18n="form.cloudMaxConcurrentHint">云 API 可同时执行的任务数；混元账户可能更低，按平台上限自动裁剪。</p>
+              </div>
+            </section>
+
+            <div class="settings-form-foot">
+              <p class="settings-foot-hint muted sm" data-i18n="form.settingsFootHint">修改后请点击保存；路径与 API 密钥仅写入本地 pipeline_config。</p>
+              <div class="settings-form-actions">
+                <button type="button" class="btn ghost" data-action="init-workflows" data-i18n="form.initWorkflows">初始化缺失工作流</button>
+                <button type="submit" class="btn primary" data-i18n="form.saveSettings">保存全局设置</button>
+              </div>
             </div>
           </form>
         </div>
@@ -362,6 +888,7 @@
         <span class="job-float-status" id="job-float-status"></span>
         <button type="button" class="job-float-cancel" id="job-float-cancel" data-i18n="job.cancel">停止</button>
       </div>
+      <ul class="job-float-queue hidden" id="job-float-queue" aria-label="queue"></ul>
     </div>
   </div>
 
@@ -416,7 +943,7 @@
             </label>
             <label class="radio-seg-item">
               <input type="radio" name="import_gen_mode" value="redraw" />
-              <span class="radio-seg-label" data-i18n="form.genModeRedraw">重绘图</span>
+              <span class="radio-seg-label" data-i18n="form.genModeRedraw">图像编辑</span>
             </label>
           </div>
         </div>

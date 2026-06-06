@@ -78,6 +78,7 @@ Web 内「Tk 回退」页也有说明。
 | 扫描 in/Unity 状态 | ✅ |
 | 基本信息 / 分类设置 / 提示词 / 工作流 | ✅ |
 | 全局设置、ComfyUI 状态 | ✅ |
+| 云生图（Stability / 万相 / 混元 / 即梦） | ✅ 基础实现（ComfyUI 路径不变） |
 | 生成选中 / 本类 / 生成并导出 / 导出 / 导出全部 | ✅ |
 | 运行日志 SSE | ✅ |
 | AI 助手（DeepSeek） | ✅ |
@@ -104,3 +105,5 @@ artApp/
 ```
 
 完整 API 文档：http://127.0.0.1:8765/api/docs
+
+云生图说明：[docs/cloud-generation.md](../docs/cloud-generation.md) · 模型注册表：[tools/cloud/registry.json](../tools/cloud/registry.json)

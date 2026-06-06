@@ -23,6 +23,27 @@ def resolve_path_for_source(
     return {"source": src, "inbox": inbox, "unity": unity}.get(source)
 
 
+def resolve_preview_file(
+    config: ConfigManager,
+    asset: Asset,
+    source: PreviewSource,
+) -> Path:
+    """按预览来源解析文件；source/unity 不存在时不回退到其他路径。"""
+    src, inbox, unity = config.resolve_paths(asset)
+    primary = resolve_path_for_source(config, asset, source)
+    if primary is not None:
+        try:
+            if primary.is_file():
+                return primary
+        except OSError:
+            pass
+    if source == "inbox":
+        fallback = first_existing_path(inbox, src, unity)
+        if fallback is not None:
+            return fallback
+    raise FileNotFoundError(f"无 {source} 文件")
+
+
 def first_existing_path(*candidates: Path | None) -> Path | None:
     for path in candidates:
         if path is None:
@@ -62,32 +83,13 @@ def build_preview_rgba(
 ) -> Any:
     from PIL import Image
 
-    src, inbox, unity = config.resolve_paths(asset)
-    path = first_existing_path(
-        resolve_path_for_source(config, asset, source),
-        inbox,
-        src,
-        unity,
-    )
-    if path is None:
-        raise FileNotFoundError(f"无 {source} 文件")
+    path = resolve_preview_file(config, asset, source)
 
-    stack = config.get_postprocess_stack(asset.id)
-    if stack and stack.layers:
-        from postprocess.engine import AssetImageResolver, render_stack
-
-        resolver = AssetImageResolver(
-            art_root=config.art_root(),
-            asset_source=src if src.is_file() else None,
-            asset_inbox=inbox if inbox.is_file() else None,
-            asset_unity=unity if unity.is_file() else None,
-            subject_path=path,
-        )
-        im = render_stack(stack, resolver)
-    else:
-        with Image.open(path) as raw:
-            raw.load()
-            im = raw.convert("RGBA")
+    # 主页预览与「打开文件」一致：直接读 inbox / source / unity 原图。
+    # 后处理合成预览请在后处理编辑器内查看，避免对 inbox 二次套用 stack 导致缩小/偏移。
+    with Image.open(path) as raw:
+        raw.load()
+        im = raw.convert("RGBA")
 
     w, h = im.size
     cap = max(64, min(int(max_size), 2048))

@@ -33,6 +33,8 @@ const state = {
   statusScanning: false,
   searchTimer: null,
   checkpoints: [],
+  cloudModels: [],
+  cloudGenModes: {},
   logFilter: "全部",
   logEs: null,
   jobTimer: null,
@@ -45,6 +47,8 @@ const state = {
   previewInfoReq: 0,
   aiMode: "free",
   aiBusy: false,
+  aiChatHistory: [],
+  workflowPresets: [],
 };
 
 let genModeHydrating = false;
@@ -63,6 +67,7 @@ const previewView = {
 let appBooted = false;
 
 const AI_MODE_KEYS = ["free", "prompt", "refine", "workflow", "basic"];
+const CLOUD_PROVIDER_TAB_ORDER = ["dashscope", "tencent", "volcengine", "stability"];
 
 function aiModeText(mode, field) {
   return t(`ai.${field}.${mode}`);
@@ -93,6 +98,8 @@ function refreshI18nUi() {
   renderCategories();
   renderAssets();
   fillCheckpointSelects();
+  updateGenerationTabLabels();
+  updateGenerationTabsVisibility();
   updateAiModeUi();
   refreshAiMessages();
   refreshComfy();
@@ -168,15 +175,30 @@ async function runGenerate(assetIds, { exportAfter = false, emptyToastKey = "toa
   if (state.assetId && assetIds.includes(state.assetId)) {
     await saveGenModeOnly();
   }
-  prepareJobUi("generate", assetIds);
+  markJobSubmitting("generate", assetIds);
   try {
     const res = await API.post("/api/generate", { asset_ids: assetIds, export_after: exportAfter });
     state.jobRunId = res.run_id ?? null;
     state.jobTrack.postOk = true;
-    startJobPoll();
+    if (res.queue_position > 1) {
+      toast(t("toast.jobQueued", { position: res.queue_position }));
+    }
+    ensureJobPoll();
   } catch (err) {
-    resetJobTracking();
-    clearJobUi();
+    jobProg.submitting = false;
+    try {
+      const j = await API.get("/api/jobs/status");
+      if (j.busy || (j.queued_count || 0) > 0 || (j.queue || []).length > 0) {
+        updateJobFromApi(j);
+        ensureJobPoll();
+      } else {
+        resetJobTracking();
+        clearJobUi();
+      }
+    } catch {
+      resetJobTracking();
+      clearJobUi();
+    }
     toast(err.message);
   }
 }
@@ -186,15 +208,30 @@ async function runExport(assetIds, { emptyToastKey = "toast.noCategoryAssets" } 
     toast(t(emptyToastKey));
     return;
   }
-  prepareJobUi("export", assetIds);
+  markJobSubmitting("export", assetIds);
   try {
     const res = await API.post("/api/export", { asset_ids: assetIds });
     state.jobRunId = res.run_id ?? null;
     state.jobTrack.postOk = true;
-    startJobPoll();
+    if (res.queue_position > 1) {
+      toast(t("toast.jobQueued", { position: res.queue_position }));
+    }
+    ensureJobPoll();
   } catch (err) {
-    resetJobTracking();
-    clearJobUi();
+    jobProg.submitting = false;
+    try {
+      const j = await API.get("/api/jobs/status");
+      if (j.busy || (j.queued_count || 0) > 0 || (j.queue || []).length > 0) {
+        updateJobFromApi(j);
+        ensureJobPoll();
+      } else {
+        resetJobTracking();
+        clearJobUi();
+      }
+    } catch {
+      resetJobTracking();
+      clearJobUi();
+    }
     toast(err.message);
   }
 }
@@ -283,23 +320,265 @@ function renderAssets() {
   box.appendChild(frag);
 }
 
+function isCloudCheckpoint(value) {
+  return String(value || "").startsWith("cloud:");
+}
+
+function effectiveCheckpointForAsset(data = state.assetFull) {
+  if (!data) return "";
+  return data.checkpoint_effective || data.checkpoint || "";
+}
+
+function assetUsesCloudBackend(data = state.assetFull) {
+  return isCloudCheckpoint(effectiveCheckpointForAsset(data));
+}
+
+function cloudProviderFromCheckpoint(checkpoint) {
+  const ckpt = String(checkpoint || "").trim();
+  if (!isCloudCheckpoint(ckpt)) return "";
+  const model = (state.cloudModels || []).find((m) => m.id === ckpt);
+  if (model?.provider) return model.provider;
+  const rest = ckpt.slice("cloud:".length);
+  return rest.split("/")[0] || "";
+}
+
+function effectiveGenTabId(data = state.assetFull) {
+  const ckpt = effectiveCheckpointForAsset(data);
+  if (!ckpt) return null;
+  if (isCloudCheckpoint(ckpt)) {
+    const provider = cloudProviderFromCheckpoint(ckpt);
+    return provider ? `cloud-${provider}` : null;
+  }
+  return "comfyui";
+}
+
+function isGenerationTab(tabId) {
+  return tabId === "comfyui" || String(tabId || "").startsWith("cloud-");
+}
+
+function tabBodyElementId(tabId) {
+  if (String(tabId || "").startsWith("cloud-")) return "tab-cloud";
+  return `tab-${tabId}`;
+}
+
+function providerTabLabel(providerId) {
+  const lang = document.documentElement.lang || "zh-CN";
+  const en = lang.startsWith("en");
+  const model = (state.cloudModels || []).find((m) => m.provider === providerId);
+  if (model) return en ? model.provider_label_en || providerId : model.provider_label_zh || providerId;
+  return providerId;
+}
+
+function updateGenerationTabLabels() {
+  const comfyTab = $('#main-tabs .tab[data-tab="comfyui"]');
+  if (comfyTab) comfyTab.textContent = t("tab.comfyui");
+  for (const pid of CLOUD_PROVIDER_TAB_ORDER) {
+    const tab = $(`#main-tabs .tab[data-tab="cloud-${pid}"]`);
+    if (tab) tab.textContent = providerTabLabel(pid);
+  }
+}
+
+function updateGenerationTabsVisibility() {
+  const genTabId = state.assetId ? effectiveGenTabId() : null;
+  $$("#main-tabs .tab[data-gen-tab]").forEach((tab) => {
+    tab.hidden = !genTabId || tab.dataset.tab !== genTabId;
+  });
+  updateGenerationTabLabels();
+  const active = $("#main-tabs .tab.active");
+  if (active?.hasAttribute("data-gen-tab") && active.hidden) {
+    if (genTabId) switchTab(genTabId);
+    else switchTab("basic");
+  }
+}
+
+function cloudModelLabel(model) {
+  const lang = document.documentElement.lang || "zh-CN";
+  return lang.startsWith("en") ? model.label_en || model.id : model.label_zh || model.id;
+}
+
 function rebuildCheckpointSelect(sel, emptyLabel, preferred = "") {
   if (!sel) return;
   const value = (preferred || sel.value || "").trim();
-  sel.innerHTML = `<option value="">${esc(emptyLabel)}</option>`;
-  for (const ck of state.checkpoints) {
-    const o = document.createElement("option");
-    o.value = ck;
-    o.textContent = ck.split("/").pop();
-    sel.appendChild(o);
-  }
-  if (value && !state.checkpoints.includes(value)) {
+  sel.innerHTML = "";
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = emptyLabel;
+  sel.appendChild(empty);
+
+  const addGroup = (label, items, getValue, getText) => {
+    if (!items.length) return;
+    const og = document.createElement("optgroup");
+    og.label = label;
+    for (const item of items) {
+      const o = document.createElement("option");
+      o.value = getValue(item);
+      o.textContent = getText(item);
+      og.appendChild(o);
+    }
+    sel.appendChild(og);
+  };
+
+  addGroup(
+    t("form.checkpointGroupLocal"),
+    state.checkpoints || [],
+    (ck) => ck,
+    (ck) => ck.split("/").pop(),
+  );
+
+  const globalCloud = (state.cloudModels || []).filter((m) => m.region === "global");
+  const cnCloud = (state.cloudModels || []).filter((m) => m.region === "cn");
+  addGroup(t("form.checkpointGroupCloudGlobal"), globalCloud, (m) => m.id, cloudModelLabel);
+  addGroup(t("form.checkpointGroupCloudCn"), cnCloud, (m) => m.id, cloudModelLabel);
+
+  if (value && ![...(state.checkpoints || []), ...(state.cloudModels || []).map((m) => m.id)].includes(value)) {
     const o = document.createElement("option");
     o.value = value;
-    o.textContent = `${value.split("/").pop()} (${t("dlg.checkpointOfflineHint")})`;
+    const short = value.split("/").pop().replace(/^cloud:/, "");
+    o.textContent = `${short} (${t("dlg.checkpointOfflineHint")})`;
     sel.appendChild(o);
   }
   if (value) sel.value = value;
+}
+
+function cloudModelSummary(data = state.assetFull) {
+  const ckpt = effectiveCheckpointForAsset(data);
+  const model = (state.cloudModels || []).find((m) => m.id === ckpt);
+  if (!model) return ckpt || "";
+  const lang = document.documentElement.lang || "zh-CN";
+  const summary = lang.startsWith("en") ? model.summary_en || model.label_en : model.summary_zh || model.label_zh;
+  return summary || cloudModelLabel(model);
+}
+
+function updateCloudTabHero(data = state.assetFull) {
+  const tab = $("#tab-cloud");
+  const ckpt = effectiveCheckpointForAsset(data);
+  const provider = cloudProviderFromCheckpoint(ckpt);
+  if (tab) tab.dataset.provider = provider || "";
+  const title = $("#cloud-tab-hero-title");
+  const desc = $("#cloud-tab-hero-desc");
+  const mark = $("#cloud-tab-mark");
+  if (title) title.textContent = provider ? providerTabLabel(provider) : "—";
+  if (desc) desc.textContent = cloudModelSummary(data);
+  if (mark) {
+    mark.className = "cloud-api-mark";
+    if (provider) mark.classList.add(`cloud-api-mark--${provider}`);
+  }
+}
+
+function currentCloudGenMode() {
+  return document.querySelector('input[name="cloud_gen_mode"]:checked')?.value || "text_to_image";
+}
+
+function cloudGenModePayloadFromForm() {
+  const mode = currentCloudGenMode();
+  return {
+    cloud_gen_mode: mode,
+    ref_image: mode === "image_to_image" ? ($("#cloud-ref-image-path")?.value.trim() || "") : "",
+    cloud_strength: parseFloat($("#cloud-strength")?.value) || 0.65,
+  };
+}
+
+function updateCloudGenModeUi() {
+  const mode = currentCloudGenMode();
+  const panel = $("#cloud-ref-panel");
+  const refSection = $("#cloud-ref-image-section");
+  const editSection = $("#cloud-edit-source-section");
+  const hint = $("#cloud-gen-ref-hint");
+  const desc = $("#cloud-gen-mode-desc");
+  panel?.classList.toggle("hidden", mode === "text_to_image");
+  refSection?.classList.toggle("hidden", mode !== "image_to_image");
+  editSection?.classList.toggle("hidden", mode !== "image_edit");
+  if (mode === "image_edit") {
+    const pathEl = $("#cloud-edit-source-path");
+    const inbox = state.paths?.inbox || state.assetFull?.inbox_path || "";
+    const src = refImageSourcePath();
+    const display = inbox || src;
+    if (pathEl) {
+      pathEl.textContent = display || t("preview.infoFileMissing");
+      pathEl.classList.toggle("is-missing", !display);
+    }
+  }
+  const descKey =
+    mode === "text_to_image"
+      ? "form.genModeTextToImageDesc"
+      : mode === "image_to_image"
+        ? "form.genModeImageToImageDesc"
+        : "form.genModeImageEditDesc";
+  if (desc) desc.textContent = t(descKey);
+  if (hint) {
+    hint.textContent =
+      mode === "image_edit" ? t("form.redrawHint") : mode === "image_to_image" ? t("form.img2imgHint") : "";
+  }
+}
+
+function syncCloudStrengthFromRange() {
+  const range = $("#cloud-strength-range");
+  const num = $("#cloud-strength");
+  if (range && num) num.value = range.value;
+}
+
+function syncCloudStrengthFromNumber() {
+  const range = $("#cloud-strength-range");
+  const num = $("#cloud-strength");
+  if (!range || !num) return;
+  let v = parseFloat(num.value);
+  if (Number.isNaN(v)) v = 0.65;
+  v = Math.max(0.01, Math.min(1, v));
+  num.value = v;
+  range.value = v;
+}
+
+async function saveCloudGenModeOnly() {
+  if (!state.assetId || genModeHydrating) return;
+  const payload = cloudGenModePayloadFromForm();
+  const prev = state.assetFull;
+  if (
+    prev &&
+    (prev.cloud_gen_mode || "text_to_image") === payload.cloud_gen_mode &&
+    (prev.ref_image || "").trim() === payload.ref_image &&
+    (prev.cloud_strength ?? 0.65) === payload.cloud_strength
+  ) {
+    return;
+  }
+  try {
+    state.assetFull = await API.put(`/api/assets/${state.assetId}`, payload);
+    updateCloudGenModeUi();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function pickCloudRefImage(btn) {
+  await withBtnBusy(btn || document.querySelector('[data-action="pick-cloud-ref-image"]'), async () => {
+    const path = await pickRefImageFile();
+    if (!path) return;
+    genModeHydrating = true;
+    $$('input[name="cloud_gen_mode"]').forEach((r) => {
+      if (r.value === "image_to_image") r.checked = true;
+    });
+    $("#cloud-ref-image-path").value = path;
+    genModeHydrating = false;
+    updateCloudGenModeUi();
+    await saveCloudGenModeOnly();
+  }).catch((err) => {
+    if (err) toast(err.message);
+  });
+}
+
+async function saveCloudPrompts(btn) {
+  if (!state.assetId) return;
+  await withBtnBusy(btn || document.querySelector('[data-action="save-cloud-prompts"]'), async () => {
+    const body = {
+      cloud_prompt: $("#cloud-prompt-text")?.value || "",
+      cloud_negative: $("#cloud-negative-text")?.value || "",
+      ...cloudGenModePayloadFromForm(),
+    };
+    state.assetFull = await API.put(`/api/assets/${state.assetId}`, body);
+    updateCloudGenModeUi();
+    toast(t("toast.promptsSaved"));
+  }).catch((err) => {
+    if (err) toast(err.message);
+  });
 }
 
 function fillCheckpointSelects() {
@@ -313,11 +592,9 @@ function fillCheckpointSelects() {
 }
 
 async function fillNewCatCheckpointSelect() {
-  await loadCheckpoints();
+  await loadGenerationModels();
   const sel = $("#new-cat-ckpt");
   if (!sel) return;
-  sel.innerHTML = "";
-  sel.required = false;
   let preferred = "";
   try {
     const settings = await API.get("/api/settings");
@@ -325,29 +602,7 @@ async function fillNewCatCheckpointSelect() {
   } catch {
     /* ignore */
   }
-  const defaultOpt = document.createElement("option");
-  defaultOpt.value = "";
-  defaultOpt.textContent = t("form.checkpointUnset");
-  sel.appendChild(defaultOpt);
-  if (!state.checkpoints.length) {
-    if (preferred) {
-      const hint = document.createElement("option");
-      hint.value = preferred;
-      hint.textContent = `${preferred.split("/").pop()} (${t("dlg.checkpointOfflineHint")})`;
-      sel.appendChild(hint);
-      sel.value = preferred;
-    }
-    return;
-  }
-  for (const ck of state.checkpoints) {
-    const o = document.createElement("option");
-    o.value = ck;
-    o.textContent = ck.split("/").pop();
-    sel.appendChild(o);
-  }
-  if (preferred && state.checkpoints.includes(preferred)) {
-    sel.value = preferred;
-  }
+  rebuildCheckpointSelect(sel, t("form.checkpointUnset"), preferred);
 }
 
 function categoryHasAssets() {
@@ -364,7 +619,9 @@ function updateMainTabsVisibility() {
   const activeId = active?.dataset.tab;
   if (activeId && !hasAssets && active?.hidden) {
     switchTab("category");
+    return;
   }
+  updateGenerationTabsVisibility();
 }
 
 function fillCategorySelect() {
@@ -398,6 +655,7 @@ async function loadBasicForm() {
     r.checked = r.value === mode;
   });
   rebuildCheckpointSelect($("#asset-ckpt"), t("form.checkpointInherit"), data.checkpoint || "");
+  updateGenerationTabsVisibility();
 }
 
 async function loadCategoryForm() {
@@ -414,22 +672,25 @@ async function loadCategoryForm() {
   rebuildCheckpointSelect($("#cat-ckpt"), t("form.checkpointUnset"), data.checkpoint || "");
 }
 
-async function loadPromptTab() {
+async function loadComfyUiTab() {
   if (!state.assetId) return;
   const data = state.assetFull || (await API.get(`/api/assets/${state.assetId}`));
   state.assetFull = data;
-  const split = $("#sdxl-split");
-  const useSplit = ["items", "skills"].includes(data.category);
-  split?.classList.toggle("hidden", !useSplit);
-  $("#positive-g-text").value = data.positive_g || "";
-  $("#positive-l-text").value = data.positive_l || "";
+  $("#positive-prefix-text").value = data.positive_prefix || "";
+  $("#positive-subject-text").value = data.positive_subject || "";
+  $("#positive-scene-text").value = data.positive_scene || "";
+  $("#positive-light-text").value = data.positive_light || "";
   $("#negative-text").value = data.negative || "";
-  if (useSplit && data.positive_g && data.positive_l) {
-    $("#positive-text").value =
-      `=== SDXL-G 边框构图 ===\n${data.positive_g}\n\n=== SDXL-L 物件主体 ===\n${data.positive_l}`;
-  } else {
-    $("#positive-text").value = data.positive || "";
+  if (
+    !data.positive_prefix &&
+    !data.positive_subject &&
+    !data.positive_scene &&
+    !data.positive_light &&
+    data.positive
+  ) {
+    $("#positive-subject-text").value = data.positive;
   }
+  updatePromptMergedPreview();
   let genMode = data.gen_mode || "txt2img";
   if (genMode === "img2img" && data.ref_image_use_source) genMode = "redraw";
   genModeHydrating = true;
@@ -447,6 +708,131 @@ async function loadPromptTab() {
     $("#workflow-text").value = wf.text || "";
   } catch {
     $("#workflow-text").value = "";
+  }
+  await refreshWorkflowPresetSelect();
+}
+
+async function loadCloudTab() {
+  if (!state.assetId) return;
+  const data = state.assetFull || (await API.get(`/api/assets/${state.assetId}`));
+  state.assetFull = data;
+  updateCloudTabHero(data);
+  let cloudMode = data.cloud_gen_mode || "text_to_image";
+  genModeHydrating = true;
+  $$('input[name="cloud_gen_mode"]').forEach((r) => {
+    r.checked = r.value === cloudMode;
+  });
+  genModeHydrating = false;
+  $("#cloud-prompt-text").value = data.cloud_prompt || data.positive || "";
+  $("#cloud-negative-text").value = data.cloud_negative || data.negative || "";
+  $("#cloud-ref-image-path").value = data.ref_image || "";
+  const strength = data.cloud_strength ?? data.img2img_denoise ?? 0.65;
+  $("#cloud-strength").value = strength;
+  $("#cloud-strength-range").value = strength;
+  updateCloudGenModeUi();
+}
+
+async function refreshWorkflowPresetSelect() {
+  const sel = $("#workflow-preset-select");
+  if (!sel || !state.assetId) return;
+  const data = state.assetFull || {};
+  let genMode = data.gen_mode || "txt2img";
+  if (genMode === "img2img" && data.ref_image_use_source) genMode = "redraw";
+  try {
+    const r = await API.get(
+      `/api/workflows/templates?category=${encodeURIComponent(data.category || "")}&gen_mode=${encodeURIComponent(genMode)}`,
+    );
+    const presets = r.presets || [];
+    state.workflowPresets = presets;
+    sel.innerHTML = presets
+      .map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`)
+      .join("");
+    updateWorkflowPresetDesc();
+  } catch {
+    sel.innerHTML = "";
+    state.workflowPresets = [];
+  }
+}
+
+function updateWorkflowPresetDesc() {
+  const sel = $("#workflow-preset-select");
+  const panel = $("#workflow-preset-detail");
+  const modeEl = $("#workflow-preset-mode");
+  const descEl = $("#workflow-preset-desc");
+  const howEl = $("#workflow-preset-how");
+  const recEl = $("#workflow-preset-recommended");
+  if (!sel || !panel) return;
+  const preset = state.workflowPresets?.find((p) => p.id === sel.value);
+  if (!preset) {
+    panel.classList.add("hidden");
+    return;
+  }
+  panel.classList.remove("hidden");
+  const modeKey = preset.mode || "";
+  if (modeEl) {
+    modeEl.textContent = modeKey ? t(`form.wfMode.${modeKey}`) : "";
+    modeEl.className = "wf-preset-mode-badge";
+    if (modeKey) modeEl.dataset.mode = modeKey;
+    else delete modeEl.dataset.mode;
+  }
+  if (descEl) descEl.textContent = preset.description || "";
+  if (howEl) howEl.textContent = preset.how_it_works || "";
+  if (recEl) recEl.textContent = preset.recommended_for || "";
+}
+
+async function loadWorkflowPreset(btn) {
+  if (!state.assetId) return;
+  const sel = $("#workflow-preset-select");
+  const presetId = sel?.value;
+  if (!presetId) return;
+  await withBtnBusy(btn, async () => {
+    const data = await API.get(`/api/workflows/templates/${encodeURIComponent(presetId)}`);
+    $("#workflow-text").value = data.text || "";
+    updateWorkflowPresetDesc();
+    toast(t("toast.workflowPresetLoaded", { name: data.name || presetId }));
+  }).catch((err) => {
+    if (err) toast(err.message);
+  });
+}
+
+function promptSegmentsFromForm() {
+  return {
+    positive_prefix: $("#positive-prefix-text")?.value.trim() || "",
+    positive_subject: $("#positive-subject-text")?.value.trim() || "",
+    positive_scene: $("#positive-scene-text")?.value.trim() || "",
+    positive_light: $("#positive-light-text")?.value.trim() || "",
+  };
+}
+
+function composePromptPreview(segments) {
+  return [
+    segments.positive_prefix,
+    segments.positive_subject,
+    segments.positive_scene,
+    segments.positive_light,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function updatePromptMergedPreview() {
+  const preview = $("#positive-merged-preview");
+  if (!preview) return;
+  const merged = composePromptPreview(promptSegmentsFromForm());
+  preview.value = merged;
+}
+
+function bindPromptSegmentListeners() {
+  for (const id of [
+    "positive-prefix-text",
+    "positive-subject-text",
+    "positive-scene-text",
+    "positive-light-text",
+  ]) {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.bound) continue;
+    el.dataset.bound = "1";
+    el.addEventListener("input", updatePromptMergedPreview);
   }
 }
 
@@ -506,6 +892,7 @@ function updateImportHintText() {
 function onGenModePanelChange() {
   updateGenModeUi();
   void saveGenModeOnly();
+  void refreshWorkflowPresetSelect();
   const dlg = $("#dlg-new-asset");
   if (dlg?.open && newAssetDlgTab === "import") {
     const mode = currentGenMode();
@@ -562,9 +949,9 @@ function updateGenModeUi() {
   redrawSection?.classList.toggle("hidden", mode !== "redraw");
   if (mode === "redraw") {
     const pathEl = $("#redraw-source-path");
-    const src = refImageSourcePath();
     const inbox = state.paths?.inbox || state.assetFull?.inbox_path || "";
-    const display = src || inbox;
+    const src = refImageSourcePath();
+    const display = inbox || src;
     if (pathEl) {
       pathEl.textContent = display || t("preview.infoFileMissing");
       pathEl.classList.toggle("is-missing", !display);
@@ -638,10 +1025,177 @@ async function loadSettingsForm() {
     "seed",
     "deepseek_api_key",
     "deepseek_model",
+    "cloud_max_concurrent",
   ]) {
     if (form[k] !== undefined) form[k].value = data[k] ?? "";
   }
+  const keys = data.cloud_api_keys || {};
+  const map = {
+    "cloud_api_keys.stability": keys.stability,
+    "cloud_api_keys.dashscope": keys.dashscope,
+    "cloud_api_keys.tencent_secret_id": keys.tencent_secret_id,
+    "cloud_api_keys.tencent_secret_key": keys.tencent_secret_key,
+    "cloud_api_keys.volcengine": keys.volcengine,
+    "cloud_api_keys.volcengine_endpoint": keys.volcengine_endpoint,
+  };
+  for (const [name, val] of Object.entries(map)) {
+    const el = form.elements.namedItem(name);
+    if (el) el.value = val ?? "";
+  }
   updateLogDirHint(data);
+  resetAllCloudApiStatuses();
+  resetDeepseekApiStatus();
+}
+
+const CLOUD_API_FIELD_MAP = {
+  stability: ["cloud_api_keys.stability"],
+  dashscope: ["cloud_api_keys.dashscope"],
+  tencent: ["cloud_api_keys.tencent_secret_id", "cloud_api_keys.tencent_secret_key"],
+  volcengine: ["cloud_api_keys.volcengine", "cloud_api_keys.volcengine_endpoint"],
+};
+
+const SETTINGS_API_PROVIDERS = {
+  deepseek: {
+    fields: ["deepseek_api_key"],
+    hasInput(form) {
+      return !!form?.deepseek_api_key?.value?.trim();
+    },
+  },
+};
+
+function cloudApiCard(provider) {
+  return document.querySelector(`.cloud-api-card[data-provider="${provider}"]`);
+}
+
+function cloudKeysFromForm() {
+  const form = $("#form-settings");
+  const keys = {};
+  if (!form) return keys;
+  for (const name of [
+    "cloud_api_keys.stability",
+    "cloud_api_keys.dashscope",
+    "cloud_api_keys.tencent_secret_id",
+    "cloud_api_keys.tencent_secret_key",
+    "cloud_api_keys.volcengine",
+    "cloud_api_keys.volcengine_endpoint",
+  ]) {
+    const el = form.elements.namedItem(name);
+    if (!el) continue;
+    keys[name.slice("cloud_api_keys.".length)] = el.value.trim();
+  }
+  return keys;
+}
+
+function cloudProviderHasInput(provider) {
+  const form = $("#form-settings");
+  if (!form) return false;
+  return (CLOUD_API_FIELD_MAP[provider] || []).some((name) => {
+    const el = form.elements.namedItem(name);
+    return el?.value?.trim();
+  });
+}
+
+function setCloudApiStatus(provider, status, message = "") {
+  const card = cloudApiCard(provider);
+  if (!card) return;
+  const badge = card.querySelector(".cloud-api-status");
+  const textEl = badge?.querySelector(".cloud-api-status-text");
+  card.classList.remove("is-verified", "is-error", "is-testing");
+  if (status === "ok") card.classList.add("is-verified");
+  else if (status === "error") card.classList.add("is-error");
+  else if (status === "testing") card.classList.add("is-testing");
+  if (badge) badge.dataset.status = status;
+  if (textEl) {
+    if (message) textEl.textContent = message;
+    else if (status === "idle") textEl.textContent = t("form.cloudStatusIdle");
+    else if (status === "empty") textEl.textContent = t("form.cloudStatusEmpty");
+    else if (status === "testing") textEl.textContent = t("form.cloudStatusTesting");
+    else if (status === "ok") textEl.textContent = t("form.cloudStatusOk");
+    else if (status === "error") textEl.textContent = t("form.cloudStatusError");
+  }
+}
+
+function resetCloudApiStatus(provider) {
+  const status = cloudProviderHasInput(provider) ? "idle" : "empty";
+  setCloudApiStatus(provider, status);
+}
+
+function resetAllCloudApiStatuses() {
+  for (const provider of Object.keys(CLOUD_API_FIELD_MAP)) {
+    resetCloudApiStatus(provider);
+  }
+}
+
+async function testCloudApi(provider, btn) {
+  await withBtnBusy(btn, async () => {
+    setCloudApiStatus(provider, "testing");
+    const keys = cloudKeysFromForm();
+    const result = await API.post("/api/cloud/verify", { provider, keys });
+    if (result.ok) {
+      setCloudApiStatus(provider, "ok", result.message || t("form.cloudStatusOk"));
+      toast(t("toast.cloudVerified"));
+    } else {
+      setCloudApiStatus(provider, "error", result.message || t("form.cloudStatusError"));
+      toast(result.message || t("toast.cloudVerifyFailed"), { variant: "error" });
+    }
+  }).catch((err) => {
+    if (err) {
+      setCloudApiStatus(provider, "error", err.message || t("form.cloudStatusError"));
+      toast(err.message || t("toast.cloudVerifyFailed"), { variant: "error" });
+    }
+  });
+}
+
+function resetDeepseekApiStatus() {
+  const form = $("#form-settings");
+  const status = SETTINGS_API_PROVIDERS.deepseek?.hasInput(form) ? "idle" : "empty";
+  setCloudApiStatus("deepseek", status);
+}
+
+async function testDeepseekApi(btn) {
+  const form = $("#form-settings");
+  if (!form) return;
+  await withBtnBusy(btn, async () => {
+    setCloudApiStatus("deepseek", "testing");
+    const result = await API.post("/api/cloud/verify", {
+      provider: "deepseek",
+      keys: {
+        deepseek_api_key: form.deepseek_api_key?.value?.trim() || "",
+        deepseek_model: form.deepseek_model?.value || "",
+      },
+    });
+    if (result.ok) {
+      setCloudApiStatus("deepseek", "ok", result.message || t("form.cloudStatusOk"));
+      toast(t("toast.deepseekVerified"));
+    } else {
+      setCloudApiStatus("deepseek", "error", result.message || t("form.cloudStatusError"));
+      toast(result.message || t("toast.deepseekVerifyFailed"), { variant: "error" });
+    }
+  }).catch((err) => {
+    if (err) {
+      const msg =
+        err.status === 404 ? t("toast.apiRouteMissingRestart") : err.message || t("form.cloudStatusError");
+      setCloudApiStatus("deepseek", "error", msg);
+      toast(msg, { variant: "error" });
+    }
+  });
+}
+
+function bindCloudApiFieldListeners() {
+  $$(".cloud-api-card [data-cloud-field]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const card = input.closest(".cloud-api-card");
+      const provider = card?.dataset.provider;
+      if (provider && CLOUD_API_FIELD_MAP[provider]) resetCloudApiStatus(provider);
+    });
+  });
+  $$("[data-settings-api-field]").forEach((el) => {
+    const reset = () => {
+      if (el.dataset.settingsApiField === "deepseek") resetDeepseekApiStatus();
+    };
+    el.addEventListener("input", reset);
+    el.addEventListener("change", reset);
+  });
 }
 
 function updateLogDirHint(data) {
@@ -670,6 +1224,7 @@ function updateAiModeUi() {
 }
 
 function renderAiChat(history = []) {
+  state.aiChatHistory = history;
   const box = $("#ai-history");
   if (!box) return;
   if (!state.assetId) {
@@ -682,6 +1237,17 @@ function renderAiChat(history = []) {
   }
   box.innerHTML = history
     .map((item) => {
+      if (item.failed) {
+        const retry = item.retry_message || "";
+        return `<article class="ai-msg assistant failed" tabindex="0" data-retry-message="${esc(retry)}" title="${esc(t("ai.failedClickHint"))}">
+        <div class="ai-msg-head">
+          <span class="ai-msg-role">${esc(t("ai.roleFailed"))}</span>
+          <span class="ai-failed-icon" aria-hidden="true" title="${esc(t("ai.failed"))}">!</span>
+          <button type="button" class="btn sm ghost ai-resend-btn" data-action="ai-resend" data-retry-message="${esc(retry)}">${esc(t("ai.resend"))}</button>
+        </div>
+        <div class="ai-msg-body">${esc(item.content || "")}</div>
+      </article>`;
+      }
       const role = item.role === "user" ? "user" : "assistant";
       const label = role === "user" ? t("ai.roleUser") : t("ai.roleAssistant");
       return `<article class="ai-msg ${role}">
@@ -691,6 +1257,32 @@ function renderAiChat(history = []) {
     })
     .join("");
   box.scrollTop = box.scrollHeight;
+}
+
+function appendFailedAiTurn(userMsg, errorMsg) {
+  const hist = [...(state.aiChatHistory || [])];
+  hist.push({ role: "user", content: userMsg });
+  hist.push({
+    role: "assistant",
+    content: errorMsg,
+    failed: true,
+    retry_message: userMsg,
+  });
+  renderAiChat(hist);
+}
+
+function fillAiInput(message) {
+  const input = $("#ai-input");
+  if (!input) return;
+  input.value = message;
+  input.focus();
+}
+
+async function sendAiWithMessage(msg) {
+  const text = String(msg || "").trim();
+  if (!text) return;
+  fillAiInput(text);
+  await sendAi();
 }
 
 function setAiBusy(busy) {
@@ -756,14 +1348,17 @@ async function switchAiMode(mode) {
 function switchTab(tabId) {
   const tabBtn = $(`#main-tabs .tab[data-tab="${tabId}"]`);
   if (tabBtn?.hidden) {
-    tabId = categoryHasAssets() ? "ai" : "category";
+    const fallbackGen = effectiveGenTabId();
+    if (fallbackGen && !$(`#main-tabs .tab[data-tab="${fallbackGen}"]`)?.hidden) tabId = fallbackGen;
+    else tabId = categoryHasAssets() ? "ai" : "category";
   }
   $$("#main-tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === tabId));
   $$(".tab-body").forEach((b) => b.classList.add("hidden"));
-  const body = $(`#tab-${tabId}`);
+  const body = $(`#${tabBodyElementId(tabId)}`);
   if (body) body.classList.remove("hidden");
   if (tabId === "category") loadCategoryForm();
-  if (tabId === "prompt") loadPromptTab();
+  if (tabId === "comfyui") loadComfyUiTab();
+  if (tabId.startsWith("cloud-")) loadCloudTab();
   if (tabId === "settings") loadSettingsForm();
   if (tabId === "ai") openAiPanel();
 }
@@ -780,7 +1375,7 @@ function previewMaxSize() {
   if (!stage) return 480;
   const dpr = window.devicePixelRatio || 1;
   const base = Math.max(stage.clientWidth, stage.clientHeight, 160);
-  return Math.min(512, Math.max(128, Math.ceil(base * dpr)));
+  return Math.min(2048, Math.max(256, Math.ceil(base * dpr * 1.5)));
 }
 
 function resetPreviewView() {
@@ -841,7 +1436,7 @@ function previewZoomFit() {
   const zy = vpH / previewView.imgH;
   previewView.zoom = Math.max(
     previewView.minZoom,
-    Math.min(previewView.maxZoom, Math.min(zx, zy) * 0.94),
+    Math.min(previewView.maxZoom, Math.min(zx, zy)),
   );
   previewView.panX = 0;
   previewView.panY = 0;
@@ -913,9 +1508,7 @@ async function applyPreviewBlob(reqId, asset, blob) {
 
   previewView.imgW = img.naturalWidth || 1;
   previewView.imgH = img.naturalHeight || 1;
-  previewView.zoom = 1;
-  previewView.panX = 0;
-  previewView.panY = 0;
+  previewZoomFit();
 
   img.hidden = false;
   hidePreviewLoadingUi();
@@ -1299,7 +1892,8 @@ async function selectAsset(assetId) {
   await loadBasicForm();
   await loadPreview();
   const activeTab = $("#main-tabs .tab.active")?.dataset.tab;
-  if (activeTab === "prompt") await loadPromptTab();
+  if (activeTab === "comfyui") await loadComfyUiTab();
+  else if (activeTab?.startsWith("cloud-")) await loadCloudTab();
   if (activeTab === "ai") await openAiPanel();
 }
 
@@ -1343,14 +1937,33 @@ async function openAssetPathDir(assetId, kind) {
   }
 }
 
-async function loadCheckpoints() {
+async function loadGenerationModels() {
   try {
-    const data = await API.get("/api/comfyui/checkpoints");
-    state.checkpoints = data.checkpoints || [];
+    const data = await API.get("/api/generation/models");
+    state.checkpoints = data.local?.checkpoints || [];
+    state.cloudModels = data.cloud?.models || [];
     fillCheckpointSelects();
+    updateGenerationTabLabels();
   } catch {
-    state.checkpoints = [];
+    try {
+      const data = await API.get("/api/comfyui/checkpoints");
+      state.checkpoints = data.checkpoints || [];
+    } catch {
+      state.checkpoints = [];
+    }
+    try {
+      const cloud = await API.get("/api/cloud/models");
+      state.cloudModels = cloud.models || [];
+    } catch {
+      state.cloudModels = [];
+    }
+    fillCheckpointSelects();
   }
+  updateGenerationTabLabels();
+}
+
+async function loadCheckpoints() {
+  await loadGenerationModels();
 }
 
 // ── 任务 / ComfyUI ─────────────────────────────────────────────
@@ -1368,7 +1981,29 @@ const jobProg = {
   phase: "",
   cancelling: false,
   visible: false,
+  queueItems: [],
+  queuedCount: 0,
+  submitting: false,
+  cloudTasks: [],
 };
+
+function jobHasActivity() {
+  return (
+    jobProg.visible ||
+    state.jobTrack.active ||
+    state.jobTrack.sawBusy ||
+    jobProg.queuedCount > 0 ||
+    jobProg.queueItems.length > 0
+  );
+}
+
+function jobLabelForAssets(assetIds) {
+  if (assetIds.length === 1) {
+    const first = state.assets.find((a) => a.id === assetIds[0]);
+    return first?.filename || assetIds[0];
+  }
+  return t("job.batchLabel", { n: assetIds.length });
+}
 
 function resetJobProg(kind = "") {
   jobProg.batchIdx = 0;
@@ -1379,6 +2014,9 @@ function resetJobProg(kind = "") {
   jobProg.phase = "";
   jobProg.lastApiKind = kind;
   jobProg.cancelling = false;
+  jobProg.queueItems = [];
+  jobProg.queuedCount = 0;
+  jobProg.submitting = false;
 }
 
 function resetJobTracking() {
@@ -1393,16 +2031,15 @@ function stopJobPoll() {
   }
 }
 
-function prepareJobUi(kind, assetIds) {
-  stopJobPoll();
-  resetJobTracking();
+function markJobSubmitting(kind, assetIds) {
   state.jobTrack.active = true;
-  resetJobProg(kind);
+  state.jobTrack.postOk = false;
+  jobProg.submitting = true;
+  if (!jobProg.lastApiKind) jobProg.lastApiKind = kind;
+  jobProg.filename = jobLabelForAssets(assetIds);
+  jobProg.message = t("job.submitting");
   jobProg.batchTotal = Math.max(assetIds.length, 1);
   jobProg.batchIdx = 1;
-  jobProg.message = t("job.preparing");
-  const first = state.assets.find((a) => a.id === assetIds[0]);
-  jobProg.filename = first?.filename || "…";
   showJobFloat();
   const pill = $("#job-pill");
   if (pill) {
@@ -1410,6 +2047,11 @@ function prepareJobUi(kind, assetIds) {
     pill.classList.add("busy");
     pill.dataset.busy = "1";
   }
+  renderJobFloat();
+}
+
+function prepareJobUi(kind, assetIds) {
+  markJobSubmitting(kind, assetIds);
 }
 
 function clearJobUi() {
@@ -1471,6 +2113,14 @@ function ingestJobProgress(p) {
   if (!p?.kind) return;
   const kind = p.kind;
   jobProg.phase = kind;
+  if (kind === "cloud_batch") {
+    jobProg.cloudTasks = Array.isArray(p.cloud_tasks) ? p.cloud_tasks : jobProg.cloudTasks;
+    if (p.overall_pct != null) jobProg.stepPct = parseInt(p.overall_pct, 10) || jobProg.stepPct;
+    if (p.filename) jobProg.filename = p.filename;
+    const running = jobProg.cloudTasks.find((t) => t.status === "RUNNING" || t.status === "PENDING");
+    if (running?.message) jobProg.message = running.message;
+    return;
+  }
   if (p.index != null) {
     jobProg.batchIdx = parseInt(p.index, 10) || jobProg.batchIdx || 1;
   }
@@ -1509,6 +2159,14 @@ function ingestJobProgress(p) {
 
 function overallJobPct() {
   if (jobProg.lastApiKind === "export") return null;
+  if (jobProg.cloudTasks?.length) {
+    const tasks = jobProg.cloudTasks;
+    const sum = tasks.reduce((acc, t) => acc + (parseInt(t.pct, 10) || 0), 0);
+    const cloudPart = sum / Math.max(tasks.length, 1) / 100;
+    const total = Math.max(jobProg.batchTotal, 1);
+    const idx = Math.max(jobProg.batchIdx, 0);
+    return Math.min(100, Math.max(0, Math.floor(((idx + cloudPart) / total) * 100)));
+  }
   if (!jobProg.batchIdx) return null;
   const total = Math.max(jobProg.batchTotal, 1);
   const idx = Math.max(jobProg.batchIdx, 1);
@@ -1527,19 +2185,38 @@ function renderJobFloat() {
   const batch = $("#job-float-batch");
   const status = $("#job-float-status");
   const cancel = $("#job-float-cancel");
+  const queueEl = $("#job-float-queue");
   if (!root) return;
 
   const isExport = jobProg.lastApiKind === "export";
-  if (title) title.textContent = isExport ? t("job.exporting") : t("job.generating");
+  const queuedOnly = !jobProg.submitting && jobProg.queuedCount > 1 && jobProg.stepPct === 0 && !jobProg.message;
+  if (title) {
+    if (jobProg.submitting) {
+      title.textContent = isExport ? t("job.exporting") : t("job.generating");
+    } else if (queuedOnly && jobProg.queueItems.length) {
+      title.textContent = t("job.queuedTitle", { n: jobProg.queuedCount });
+    } else {
+      title.textContent = isExport ? t("job.exporting") : t("job.generating");
+    }
+  }
   if (file) {
-    file.textContent = jobProg.filename || (isExport ? "…" : t("job.preparing"));
+    if (jobProg.submitting) {
+      file.textContent = jobProg.filename || t("job.submitting");
+    } else {
+      file.textContent = jobProg.filename || (isExport ? "…" : t("job.preparing"));
+    }
   }
 
   const pct = overallJobPct();
   const waiting =
     jobProg.stepPct < 100 &&
     ["queue", "running", "status", "executing"].includes(jobProg.phase);
-  const indeterminate = isExport || pct === null || (pct === 0 && waiting && !jobProg.message);
+  const indeterminate =
+    isExport ||
+    jobProg.submitting ||
+    pct === null ||
+    (pct === 0 && waiting && !jobProg.message);
+
   root.classList.toggle("is-indeterminate", indeterminate);
 
   if (pctEl) {
@@ -1552,15 +2229,41 @@ function renderJobFloat() {
     else fill.style.width = `${pct}%`;
   }
   if (batch) {
-    batch.textContent =
+    const batchText =
       jobProg.batchTotal > 1 && jobProg.batchIdx ? `${jobProg.batchIdx}/${jobProg.batchTotal}` : "";
+    const queueNote =
+      jobProg.queueItems.length > 0
+        ? t("job.queueWaiting", { n: jobProg.queueItems.length })
+        : "";
+    batch.textContent = [batchText, queueNote].filter(Boolean).join(" · ");
   }
   if (status) {
-    status.textContent = jobProg.message || (indeterminate ? t("job.preparing") : "");
+    status.textContent =
+      jobProg.message || (jobProg.submitting ? t("job.submitting") : indeterminate ? t("job.preparing") : "");
   }
   if (cancel) {
     cancel.disabled = jobProg.cancelling;
     cancel.textContent = jobProg.cancelling ? t("job.cancelling") : t("job.cancel");
+  }
+  if (queueEl) {
+    const items = jobProg.queueItems || [];
+    if (items.length) {
+      queueEl.classList.remove("hidden");
+      queueEl.innerHTML = items
+        .map(
+          (item, idx) => `<li class="job-float-queue-item">
+            <span class="job-float-queue-pos">${idx + 1}</span>
+            <span class="job-float-queue-copy">
+              <span class="job-float-queue-label">${esc(item.label || "…")}</span>
+              <span class="job-float-queue-kind">${esc(item.kind === "export" ? t("job.exportShort") : t("job.generateShort"))}${item.count > 1 ? ` · ${item.count}` : ""}</span>
+            </span>
+          </li>`,
+        )
+        .join("");
+    } else {
+      queueEl.classList.add("hidden");
+      queueEl.innerHTML = "";
+    }
   }
 }
 
@@ -1589,26 +2292,20 @@ function hideJobFloat() {
 
 function updateJobFromApi(j) {
   const pill = $("#job-pill");
+  jobProg.submitting = false;
+  jobProg.queueItems = Array.isArray(j.queue) ? j.queue : [];
+  jobProg.queuedCount = Math.max(parseInt(j.queued_count, 10) || 0, 0);
+  if (Array.isArray(j.cloud_tasks)) jobProg.cloudTasks = j.cloud_tasks;
 
-  if (state.jobTrack.active && !state.jobTrack.postOk && !j.busy) {
-    return;
-  }
-  if (
-    state.jobRunId != null &&
-    j.run_id != null &&
-    j.run_id !== state.jobRunId &&
-    !j.busy
-  ) {
-    return;
-  }
+  const hasQueue = jobProg.queuedCount > 0 || jobProg.queueItems.length > 0;
 
   if (j.busy) {
     if (!state.jobTrack.active) {
       state.jobTrack = { active: true, sawBusy: true, postOk: true };
-      if (j.run_id != null) state.jobRunId = j.run_id;
     } else {
       state.jobTrack.sawBusy = true;
     }
+    if (j.run_id != null) state.jobRunId = j.run_id;
     if (j.kind) jobProg.lastApiKind = j.kind;
     ingestJobProgress(j.progress || {});
     showJobFloat();
@@ -1621,10 +2318,20 @@ function updateJobFromApi(j) {
     return;
   }
 
-  if (!state.jobTrack.active && !state.jobTrack.sawBusy) {
+  if (hasQueue) {
+    state.jobTrack.active = true;
+    state.jobTrack.sawBusy = true;
+    showJobFloat();
+    renderJobFloat();
+    if (pill) {
+      pill.textContent = t("job.queuedPill", { n: jobProg.queuedCount });
+      pill.classList.add("busy");
+      pill.dataset.busy = "1";
+    }
     return;
   }
-  if (state.jobRunId != null && j.run_id != null && j.run_id !== state.jobRunId) {
+
+  if (!state.jobTrack.active && !state.jobTrack.sawBusy) {
     return;
   }
 
@@ -1635,6 +2342,11 @@ function updateJobFromApi(j) {
     loadPreviewInfo(state.assetId);
   }
   scanStatus();
+}
+
+function ensureJobPoll() {
+  if (state.jobTimer) return;
+  startJobPoll();
 }
 
 function clampFloatPosition(x, y, el) {
@@ -2040,6 +2752,7 @@ async function saveBasic(e) {
     };
     state.assetFull = await API.put(`/api/assets/${state.assetId}`, body);
     toast(t("toast.saved"));
+    updateGenerationTabsVisibility();
     if (body.category !== state.categoryId) {
       await bootstrap(false);
       await selectCategory(body.category);
@@ -2080,23 +2793,16 @@ async function saveCategory(e) {
 async function savePrompts(btn) {
   if (!state.assetId) return;
   await withBtnBusy(btn || document.querySelector('[data-action="save-prompts"]'), async () => {
-    const data = state.assetFull || {};
-    const useSplit = ["items", "skills"].includes(data.category);
+    const segments = promptSegmentsFromForm();
     const body = {
       negative: $("#negative-text").value,
+      ...segments,
+      positive: composePromptPreview(segments),
       ...genModePayloadFromForm(),
     };
-    if (useSplit) {
-      const g = $("#positive-g-text").value.trim();
-      const l = $("#positive-l-text").value.trim();
-      body.positive_g = g;
-      body.positive_l = l;
-      body.positive = `${g} ${l}`.trim();
-    } else {
-      body.positive = $("#positive-text").value;
-    }
     state.assetFull = await API.put(`/api/assets/${state.assetId}`, body);
     updateGenModeUi();
+    updatePromptMergedPreview();
     toast(t("toast.promptsSaved"));
   }).catch((err) => {
     if (err) toast(err.message);
@@ -2132,6 +2838,9 @@ async function loadDefaultWorkflow(btn) {
   await withBtnBusy(btn || document.querySelector('[data-action="load-default-wf"]'), async () => {
     const data = await API.get(`/api/assets/${state.assetId}/workflow/default`);
     $("#workflow-text").value = data.text || "";
+    const sel = $("#workflow-preset-select");
+    if (sel && data.preset_id) sel.value = data.preset_id;
+    updateWorkflowPresetDesc();
     toast(t("toast.defaultTemplateLoaded"));
   }).catch((err) => {
     if (err) toast(err.message);
@@ -2145,11 +2854,19 @@ async function saveSettings(e) {
     const form = $("#form-settings");
     const body = {};
     for (const el of form.elements) {
-      if (el.name) body[el.name] = el.type === "number" ? Number(el.value) : el.value;
+      if (!el.name || el.type === "submit") continue;
+      if (el.name.startsWith("cloud_api_keys.")) continue;
+      body[el.name] = el.type === "number" ? Number(el.value) : el.value;
+    }
+    body.cloud_api_keys = {};
+    for (const el of form.elements) {
+      if (!el.name?.startsWith("cloud_api_keys.")) continue;
+      const key = el.name.slice("cloud_api_keys.".length);
+      body.cloud_api_keys[key] = el.value.trim();
     }
     await API.put("/api/settings", body);
     toast(t("toast.settingsSaved"));
-    await loadCheckpoints();
+    await loadGenerationModels();
     await loadSettingsForm();
   }).catch((err) => {
     if (err) toast(err.message);
@@ -2175,12 +2892,20 @@ async function refreshUiAfterAi(applied) {
   const promptFields = new Set([
     "positive",
     "negative",
+    "positive_prefix",
+    "positive_subject",
+    "positive_scene",
+    "positive_light",
     "positive_g",
     "positive_l",
     "gen_mode",
     "ref_image",
     "img2img_denoise",
     "workflow",
+    "cloud_prompt",
+    "cloud_negative",
+    "cloud_gen_mode",
+    "cloud_strength",
   ]);
 
   if (categoryChanged) {
@@ -2190,7 +2915,10 @@ async function refreshUiAfterAi(applied) {
     await selectAsset(state.assetId);
   } else {
     if (applied.some((k) => basicFields.has(k))) await loadBasicForm();
-    if (applied.some((k) => promptFields.has(k))) await loadPromptTab();
+    if (applied.some((k) => promptFields.has(k))) {
+      if (assetUsesCloudBackend()) await loadCloudTab();
+      else await loadComfyUiTab();
+    }
     if (catSettingsChanged) {
       const fresh = await API.get(`/api/assets/${state.assetId}`);
       if (state.categoryId === fresh.category) await loadCategoryForm();
@@ -2228,6 +2956,10 @@ async function sendAi() {
   } catch (err) {
     toast(err.message);
     await refreshAiMessages();
+    const hasFailed = (state.aiChatHistory || []).some(
+      (item) => item.failed && item.retry_message === msg,
+    );
+    if (!hasFailed) appendFailedAiTurn(msg, err.message);
   } finally {
     setAiBusy(false);
     updateAiModeUi();
@@ -2346,6 +3078,34 @@ async function openPostprocessAsync(assetId) {
   await launchPostprocessWindow(assetId, subject);
 }
 
+function renameConflictKindLabel(kind) {
+  if (kind === "source") return t("confirm.moveAsset.kindSource");
+  if (kind === "inbox") return t("confirm.moveAsset.kindInbox");
+  if (kind === "unity") return t("confirm.moveAsset.kindUnity");
+  return kind;
+}
+
+async function postAssetRename(assetId, filename, overwrite = false) {
+  return API.post(`/api/assets/${assetId}/rename`, { filename, overwrite });
+}
+
+async function finishAssetRename(assetId, data) {
+  const n = data.renamed?.length || 0;
+  const suffix = data.overwritten ? t("toast.renamedOverwrite") : "";
+  toast(
+    (n > 0 ? t("toast.renamed", { n, name: data.filename }) : t("toast.renamedConfig", { name: data.filename })) +
+      suffix
+  );
+  if (assetId === state.assetId) {
+    state.assetFull = null;
+    await loadBasicForm();
+    await loadPaths();
+    await loadPreview();
+  }
+  await loadAssetList();
+  await scanStatus();
+}
+
 async function renameAssetDialog(assetId) {
   let filename = state.assets.find((a) => a.id === assetId)?.filename;
   if (!filename) {
@@ -2367,18 +3127,37 @@ async function renameAssetDialog(assetId) {
       return;
     }
     await withBtnBusy(submitBtn, async () => {
-      const data = await API.post(`/api/assets/${assetId}/rename`, { filename: newName });
-      dlg.close();
-      const n = data.renamed?.length || 0;
-      toast(n > 0 ? t("toast.renamed", { n, name: data.filename }) : t("toast.renamedConfig", { name: data.filename }));
-      if (assetId === state.assetId) {
-        state.assetFull = null;
-        await loadBasicForm();
-        await loadPaths();
-        await loadPreview();
+      try {
+        const data = await postAssetRename(assetId, newName);
+        dlg.close();
+        await finishAssetRename(assetId, data);
+      } catch (err) {
+        if (err?.code !== "rename_file_conflict" || !err.detail?.can_overwrite) {
+          throw err;
+        }
+        const conflicts = err.detail.conflicts || [];
+        const targetName = err.detail.filename || newName;
+        const details = [
+          t("confirm.renameOverwrite.detailHint"),
+          ...conflicts.map((c) =>
+            t("confirm.renameOverwrite.detailPath", {
+              kind: renameConflictKindLabel(c.kind),
+              path: c.path,
+            })
+          ),
+        ];
+        const ok = await showConfirmDialog({
+          title: t("confirm.renameOverwrite.title"),
+          message: t("confirm.renameOverwrite.message", { name: targetName }),
+          details,
+          confirmText: t("confirm.renameOverwrite.confirm"),
+          danger: true,
+        });
+        if (!ok) return;
+        const data = await postAssetRename(assetId, newName, true);
+        dlg.close();
+        await finishAssetRename(assetId, data);
       }
-      await loadAssetList();
-      await scanStatus();
     }).catch((err) => {
       if (err) toast(err.message);
     });
@@ -3395,6 +4174,7 @@ function bindAssetPanelResize() {
 
 function bindUi() {
   bindRipple(document.getElementById("app"));
+  bindPromptSegmentListeners();
   bindAssetPanelResize();
   bindAssetContextMenu();
   bindCategoryContextMenu();
@@ -3455,9 +4235,26 @@ function bindUi() {
   $("#form-basic")?.addEventListener("submit", saveBasic);
   $("#form-category")?.addEventListener("submit", saveCategory);
   $("#form-settings")?.addEventListener("submit", saveSettings);
+  bindCloudApiFieldListeners();
+
+  $("#workflow-preset-select")?.addEventListener("change", updateWorkflowPresetDesc);
 
   $$('input[name="gen_mode"]').forEach((r) => {
     r.addEventListener("change", onGenModePanelChange);
+  });
+  $$('input[name="cloud_gen_mode"]').forEach((r) => {
+    r.addEventListener("change", () => {
+      updateCloudGenModeUi();
+      void saveCloudGenModeOnly();
+    });
+  });
+  $("#cloud-strength-range")?.addEventListener("input", () => {
+    syncCloudStrengthFromRange();
+    void saveCloudGenModeOnly();
+  });
+  $("#cloud-strength")?.addEventListener("change", () => {
+    syncCloudStrengthFromNumber();
+    void saveCloudGenModeOnly();
   });
   $("#img2img-denoise-range")?.addEventListener("input", () => {
     syncDenoiseFromRange();
@@ -3485,6 +4282,29 @@ function bindUi() {
       e.preventDefault();
       sendAi();
     }
+  });
+
+  $("#ai-history")?.addEventListener("click", (e) => {
+    const resendBtn = e.target.closest("[data-action='ai-resend']");
+    if (resendBtn) {
+      e.stopPropagation();
+      const retry = resendBtn.dataset.retryMessage || "";
+      if (retry) void sendAiWithMessage(retry);
+      return;
+    }
+    const failed = e.target.closest(".ai-msg.failed[data-retry-message]");
+    if (!failed || e.target.closest("button")) return;
+    const retry = failed.dataset.retryMessage || "";
+    if (retry) fillAiInput(retry);
+  });
+
+  $("#ai-history")?.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const failed = e.target.closest(".ai-msg.failed[data-retry-message]");
+    if (!failed) return;
+    e.preventDefault();
+    const retry = failed.dataset.retryMessage || "";
+    if (retry) fillAiInput(retry);
   });
 
   document.addEventListener("click", () => {
@@ -3536,6 +4356,12 @@ function bindUi() {
       case "pick-ref-image":
         await pickRefImage(btn);
         break;
+      case "pick-cloud-ref-image":
+        await pickCloudRefImage(btn);
+        break;
+      case "save-cloud-prompts":
+        await saveCloudPrompts(btn);
+        break;
       case "save-wf":
         await saveWorkflow(btn);
         break;
@@ -3545,8 +4371,14 @@ function bindUi() {
       case "load-default-wf":
         await loadDefaultWorkflow(btn);
         break;
+      case "load-wf-preset":
+        await loadWorkflowPreset(btn);
+        break;
       case "ai-send":
         sendAi();
+        break;
+      case "ai-resend":
+        if (btn.dataset.retryMessage) void sendAiWithMessage(btn.dataset.retryMessage);
         break;
       case "ai-clear":
         await clearAiChat();
@@ -3565,6 +4397,12 @@ function bindUi() {
         }).catch((err) => {
           if (err) toast(err.message);
         });
+        break;
+      case "test-cloud-api":
+        await testCloudApi(btn.dataset.provider, btn);
+        break;
+      case "test-deepseek-api":
+        await testDeepseekApi(btn);
         break;
       case "autodetect-paths":
         await withBtnBusy(btn, async () => {
@@ -3598,6 +4436,23 @@ function bindUi() {
     if (event.origin !== location.origin) return;
     const data = event.data;
     if (!data || data.type !== "postprocess-applied" || !data.assetId) return;
+    if (data.width != null && data.height != null) {
+      const row = state.assets.find((a) => a.id === data.assetId);
+      if (row) {
+        row.width = data.width;
+        row.height = data.height;
+        if (data.size_label) row.size_label = data.size_label;
+        else row.size_label = `${data.width}×${data.height}`;
+      }
+      if (data.assetId === state.assetId && state.assetFull) {
+        state.assetFull.width = data.width;
+        state.assetFull.height = data.height;
+        const form = $("#form-basic");
+        if (form?.width) form.width.value = data.width;
+        if (form?.height) form.height.value = data.height;
+      }
+      renderAssetList();
+    }
     if (data.assetId === state.assetId) {
       loadPreview();
       loadPreviewInfo(data.assetId);
@@ -3642,12 +4497,12 @@ async function bootstrap(pickFirst = true) {
     if (!appBooted) setInterval(refreshComfy, 30000);
     try {
       const j = await API.get("/api/jobs/status");
-      if (j.busy) {
+      if (j.busy || (j.queued_count || 0) > 0 || (j.queue || []).length > 0) {
         state.jobRunId = j.run_id ?? null;
-        state.jobTrack = { active: true, sawBusy: true, postOk: true };
-        resetJobProg(j.kind || "");
+        state.jobTrack = { active: true, sawBusy: !!j.busy, postOk: true };
+        if (j.kind) resetJobProg(j.kind);
         updateJobFromApi(j);
-        startJobPoll();
+        ensureJobPoll();
       }
     } catch {
       /* ignore */

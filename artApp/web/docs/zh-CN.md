@@ -4,7 +4,7 @@
 
 ## 简介
 
-ArtPipeline Studio 是面向游戏美术资源的 Web 流水线工具，串联 **ComfyUI 生成 → source 原图 → inbox 编辑 → 游戏引擎目录** 的完整流程。支持批量生成、图层后处理、AI 提示词助手与配置管理。
+ArtPipeline Studio 是面向游戏美术资源的 Web 流水线工具，串联 **ComfyUI / 云端 API 生成 → source 原图 → inbox 编辑 → 游戏引擎目录** 的完整流程。支持批量生成、图层后处理、AI 提示词助手与配置管理。
 
 ## 工作环境
 
@@ -12,7 +12,8 @@ ArtPipeline Studio 是面向游戏美术资源的 Web 流水线工具，串联 *
 
 | 组件 | 说明 |
 |------|------|
-| **ComfyUI** | 本地或局域网运行的 Stable Diffusion 推理服务，工具通过 HTTP API 提交工作流 |
+| **ComfyUI** | 本地 Stable Diffusion 推理（基本盘）；HTTP API 提交工作流 |
+| **云端 API**（可选） | Stability / 万相 / 混元 / 即梦；无需本地 GPU |
 | **ArtPipeline 目录** | 存放 source / inbox、工作流 JSON、后处理素材与配置 |
 | **游戏引擎项目** | 通常为 Unity 项目；导出目标路径在「全局设置」中配置 |
 
@@ -113,15 +114,30 @@ python run_dev.py
 
 ### Checkpoint 配置
 
-生图模型按 **分类 → 资源** 两级配置，全局设置只需填写 **ComfyUI URL** 即可拉取模型列表：
+生图模型按 **分类 → 资源** 两级配置：
 
 | 位置 | 作用 | 留空时 |
 |------|------|--------|
-| **分类设置** | 该分类下资源的默认 Checkpoint | 未设置，生图会提示配置 |
+| **分类设置** | 该分类下资源的默认模型 | 未设置，生图会提示配置 |
 | **基本信息** | 单个资源可覆盖模型 | 跟随分类 |
-| **全局设置** | ComfyUI URL、采样参数、**运行日志目录** 等 | — |
+| **全局设置** | ComfyUI URL、采样参数、云 API Key、**运行日志目录** 等 | — |
 
-新建分类时需选择 Checkpoint；ComfyUI 离线时可手动输入已知模型文件名。
+下拉列表分为 **本地 ComfyUI checkpoint** 与 **云端模型**（`cloud:` 前缀）。ComfyUI 离线时仍可选用云端模型；本地模型可手动输入已知 checkpoint 文件名。
+
+详见 [云生图说明](../../../docs/cloud-generation.md)。
+
+### 三种生成模式（统一命名）
+
+| 模式 | 说明 |
+|------|------|
+| **文生图** | 仅文字描述，无需参考图 |
+| **图生图** | 参考图 + 参考强度（denoise / strength） |
+| **图像编辑** | 以 source 原图为底修改（ComfyUI 内部为 redraw） |
+
+- **本地 ComfyUI**：在「提示词与工作流」配置四段 prompt 与工作流 JSON。
+- **云端模型**：在「云提示词」配置单段 `cloud_prompt`；无工作流。支持多任务并发与异步进度。
+
+支持平台：**Stability AI**（国外）、**阿里云万相**、**腾讯混元**、**火山即梦**（国内）。模型列表见 `tools/cloud/registry.json`。
 
 ### 后处理编辑器
 
@@ -142,9 +158,10 @@ source 是 AI 生成的「母版」。后处理、裁切、加框等操作只在
 
 ### 3. 生成前检查
 
-- ComfyUI 右上角 pill 显示「在线」
-- **分类或资源已配置 Checkpoint**
-- 资源已启用且工作流 JSON 有效
+- 本地 ComfyUI：右上角 pill 显示「在线」；已配置 checkpoint 与工作流
+- 云端模型：已在「全局设置」填写对应平台 API Key
+- **分类或资源已配置生图模型**
+- 资源已启用；ComfyUI 资源需工作流 JSON 有效
 - 提示词与尺寸符合分类规范
 
 ### 4. 批量流程建议
@@ -167,8 +184,8 @@ source 是 AI 生成的「母版」。后处理、裁切、加框等操作只在
 |------|------|
 | 预览空白 | 确认对应 source/inbox 文件存在；点击刷新状态 |
 | 引擎文件过期（U 红色） | 后处理或 inbox 更新后重新「导出到游戏引擎」 |
-| ComfyUI 离线 | 检查 URL、防火墙与 ComfyUI 进程 |
-| 未配置 checkpoint | 在「分类设置」选择模型，或在「基本信息」为单资源指定 |
+| ComfyUI 离线 | 检查 URL、防火墙与 ComfyUI 进程；或改用云端模型 |
+| 未配置 checkpoint / 云 Key | 分类/资源选模型；云端需在全局设置填 API Key |
 | 导出 405 | 重启 `run_dev.py`  dev 服务 |
 
 ---

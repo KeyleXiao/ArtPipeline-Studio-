@@ -79,10 +79,17 @@ def build_workflow(
     scheduler: str = "normal",
     positive_g: str | None = None,
     positive_l: str | None = None,
+    positive_prefix: str = "",
+    positive_subject: str = "",
+    positive_scene: str = "",
+    positive_light: str = "",
+    positive_scene_bg: str = "",
+    positive_subject_fg: str = "",
     lora: str = "",
     lora_strength: float = 0.7,
     ref_image: str = "",
     denoise: float = 1.0,
+    denoise_subject: float = 0.52,
 ) -> dict:
     pg = positive_g if positive_g is not None else positive
     pl = positive_l if positive_l is not None else positive
@@ -90,6 +97,12 @@ def build_workflow(
         "POSITIVE": positive,
         "POSITIVE_G": pg,
         "POSITIVE_L": pl,
+        "POSITIVE_PREFIX": positive_prefix,
+        "POSITIVE_SUBJECT": positive_subject,
+        "POSITIVE_SCENE": positive_scene,
+        "POSITIVE_LIGHT": positive_light,
+        "POSITIVE_SCENE_BG": positive_scene_bg,
+        "POSITIVE_SUBJECT_FG": positive_subject_fg,
         "NEGATIVE": negative,
         "WIDTH": str(width),
         "HEIGHT": str(height),
@@ -104,6 +117,7 @@ def build_workflow(
         "SCHEDULER": scheduler,
         "REF_IMAGE": ref_image,
         "DENOISE": str(denoise),
+        "DENOISE_SUBJECT": str(denoise_subject),
     }
     wf = _replace_in_obj(copy.deepcopy(template), variables)
     return _coerce_numeric_strings(wf)
