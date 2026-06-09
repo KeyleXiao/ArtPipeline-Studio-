@@ -418,6 +418,7 @@
   "confirm.deleteCategory.detailFiles": "磁盘上的 PNG 文件不会被删除",
   "confirm.deleteCategory.confirm": "删除分类",
   "pp.title": "后处理",
+  "pp.headDesc": "PS 式图层 · 仅改 inbox · source 只读",
   "pp.back": "← 返回",
   "pp.loadTemplate": "载入模板",
   "pp.layers": "图层",

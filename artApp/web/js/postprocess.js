@@ -1838,10 +1838,17 @@ async function commitCrop() {
     if (bakeToMaster) {
       applyPropsFromForm();
       try {
-        await API.post(
+        const r = await API.post(
           `/api/assets/${encodeURIComponent(assetId)}/postprocess/bake-subject-crop`,
           previewBody(),
         );
+        if (r?.stack) {
+          stack = r.stack;
+          const subj = subjectLayer();
+          if (subj?.id) selectedId = subj.id;
+        } else {
+          delete layer.crop;
+        }
         setStatus(t("pp.cropBakedToMaster"));
       } catch (err) {
         setStatus(err.message);
@@ -2044,6 +2051,11 @@ async function saveStack(btn) {
 
 async function applyInbox(btn) {
   await withBtnBusy(btn || $("#pp-apply"), async () => {
+    if (cropMode && cropPreview) {
+      const layer = selectedLayer();
+      if (layer) layer.crop = clampCrop(cropPreview);
+      syncCropToForm();
+    }
     applyPropsFromForm();
     if (subjectMode === "source") {
       const wIn = $("#pp-canvas-w");

@@ -1436,16 +1436,19 @@ def _write_canvas_render_to_source(
     stack: Any,
     resolver: Any,
     subject_path: str | None,
-) -> bool:
-    """source 编辑：将整幅画布合成写入 source 原图（用于修改画布尺寸）。"""
+) -> bytes | None:
+    """source 编辑：将整幅画布合成写入 source 原图（用于修改画布尺寸）。
+
+    返回已合成的 PNG 字节；调用方勿再 render_stack，否则主体会被二次合成放大。
+    """
     from postprocess.engine import render_stack_to_png_bytes
     from postprocess.matte import is_subject_source_edit_mode, sync_asset_source_to_inbox
 
     if not is_subject_source_edit_mode(subject_path):
-        return False
+        return None
     target_info = _master_target_path(config, asset, subject_path)
     if not target_info or target_info[0] != "source":
-        return False
+        return None
     _target_mode, target = target_info
     try:
         data = render_stack_to_png_bytes(stack, resolver)
@@ -1462,6 +1465,46 @@ def _write_canvas_render_to_source(
         f"已按画布尺寸写入 source: {asset.filename}（{stack.canvas_width}×{stack.canvas_height}）",
         kind="操作",
     )
+    return data
+
+
+def _subject_had_crop(stack: Any) -> bool:
+    subj = stack.subject_layer()
+    return bool(subj and subj.crop)
+
+
+def _clear_subject_crop(stack: Any) -> None:
+    subj = stack.subject_layer()
+    if subj:
+        subj.crop = None
+
+
+def _bake_subject_crop_to_inbox(
+    config: Any,
+    asset: Any,
+    stack: Any,
+    resolver: Any,
+    inbox: Path,
+) -> bool:
+    """inbox 模式 apply：将主体裁切烘焙进 inbox 工作副本，避免与合成阶段重复裁切。"""
+    import io
+
+    from postprocess.engine import bake_subject_crop_pixels
+    from postprocess.models import ASSET_SUBJECT_SOURCE, layer_image_source
+
+    subj = stack.subject_layer()
+    if not subj or subj.type != "image" or layer_image_source(subj) != ASSET_SUBJECT_SOURCE:
+        return False
+    if not subj.crop:
+        return False
+    baked = bake_subject_crop_pixels(subj, resolver)
+    if baked is None:
+        return False
+    buf = io.BytesIO()
+    baked.save(buf, format="PNG", optimize=True)
+    _write_bytes_atomic(inbox, buf.getvalue())
+    subj.crop = None
+    log_bus.log(f"apply 前已烘焙裁切到 inbox: {asset.filename}", kind="操作")
     return True
 
 
@@ -1982,9 +2025,11 @@ def bake_subject_crop_postprocess(asset_id: str, body: dict[str, Any] | None = N
         from postprocess.matte import normalize_edit_subject
 
         stack.edit_subject = normalize_edit_subject(str(body.get("edit_subject")))
+    from postprocess.models import stack_to_dict
+
     config.set_postprocess_stack(asset_id, stack)
     reload_config_manager()
-    return {"status": "ok", "path": str(path) if path else ""}
+    return {"status": "ok", "path": str(path) if path else "", "stack": stack_to_dict(stack)}
 
 
 @router.post("/assets/{asset_id}/postprocess/apply")
@@ -2011,13 +2056,16 @@ def apply_postprocess(
     baked_master = False
     size_synced = False
     canvas_written = False
+    composed_data: bytes | None = None
+    had_subject_crop = _subject_had_crop(stack)
     try:
         if is_subject_master_edit_mode(body.get("subject_path")):
             if _stack_canvas_differs_from_asset(asset, stack):
                 _validate_stack_canvas_size(stack)
-                canvas_written = _write_canvas_render_to_source(
+                composed_data = _write_canvas_render_to_source(
                     config, asset, stack, resolver, body.get("subject_path")
                 )
+                canvas_written = composed_data is not None
                 resolver = _pp_resolver(config, asset, body.get("subject_path"))
                 size_synced = _sync_asset_dimensions_from_stack(config, asset, stack)
                 baked_master = canvas_written
@@ -2026,12 +2074,17 @@ def apply_postprocess(
                     config, asset, stack, resolver, body.get("subject_path")
                 )
                 resolver = _pp_resolver(config, asset, body.get("subject_path"))
+        elif had_subject_crop:
+            _bake_subject_crop_to_inbox(config, asset, stack, resolver, inbox)
+            resolver = _pp_resolver(config, asset, body.get("subject_path"))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     try:
-        data = render_stack_to_png_bytes(stack, resolver)
+        if composed_data is None:
+            composed_data = render_stack_to_png_bytes(stack, resolver)
     except Exception as exc:
         raise HTTPException(500, str(exc)) from exc
+    data = composed_data
     if not data:
         raise HTTPException(500, "合成结果为空")
     inbox.parent.mkdir(parents=True, exist_ok=True)
@@ -2046,6 +2099,8 @@ def apply_postprocess(
             except OSError:
                 pass
 
+    if had_subject_crop and not canvas_written:
+        _clear_subject_crop(stack)
     if body.get("edit_subject") is not None:
         stack.edit_subject = normalize_edit_subject(str(body.get("edit_subject")))
     elif body.get("subject_path"):

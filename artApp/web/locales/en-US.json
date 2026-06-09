@@ -418,6 +418,7 @@
   "confirm.deleteCategory.detailFiles": "PNG files on disk will not be deleted",
   "confirm.deleteCategory.confirm": "Delete category",
   "pp.title": "Post-process",
+  "pp.headDesc": "Layer stack · inbox only · source is read-only",
   "pp.back": "← Back",
   "pp.loadTemplate": "Load template",
   "pp.layers": "Layers",

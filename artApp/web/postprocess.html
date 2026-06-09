@@ -16,44 +16,61 @@
   </div>
   <div class="pp-app" id="pp-app">
     <header class="pp-head">
-      <a class="btn sm ghost" href="/" data-i18n="pp.back">← 返回</a>
-      <h1 id="pp-title" data-i18n="pp.title">后处理</h1>
-      <span class="muted" id="pp-meta"></span>
-      <div class="pp-head-tools">
-        <select id="pp-template" class="search"></select>
-        <button type="button" class="btn sm" id="pp-load-template" data-i18n="pp.loadTemplate">载入模板</button>
-        <div class="lang-switch" role="group">
-          <button type="button" class="lang-btn" data-lang="zh-CN" data-i18n="lang.zh">中文</button>
-          <button type="button" class="lang-btn" data-lang="en-US" data-i18n="lang.en">EN</button>
+      <div class="pp-head-bar settings-section-hero settings-section-hero--pp settings-section-hero--compact">
+        <div class="settings-section-hero-glow" aria-hidden="true"></div>
+        <a class="btn sm ghost pp-head-back" href="/" data-i18n="pp.back">← 返回</a>
+        <div class="settings-section-hero-icon pp-head-icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+        </div>
+        <div class="settings-section-hero-copy pp-head-copy">
+          <h1 class="settings-section-title" id="pp-title" data-i18n="pp.title">后处理</h1>
+          <p class="settings-section-desc muted sm" id="pp-meta" data-i18n="pp.headDesc">PS 式图层 · 仅改 inbox · source 只读</p>
+        </div>
+        <div class="pp-head-tools">
+          <select id="pp-template" class="gen-field-select pp-template-select"></select>
+          <button type="button" class="btn sm" id="pp-load-template" data-i18n="pp.loadTemplate">载入模板</button>
+          <div class="lang-switch" role="group">
+            <button type="button" class="lang-btn" data-lang="zh-CN" data-i18n="lang.zh">中文</button>
+            <button type="button" class="lang-btn" data-lang="en-US" data-i18n="lang.en">EN</button>
+          </div>
         </div>
       </div>
       <div class="pp-master-warn" id="pp-master-warn" hidden role="alert"></div>
     </header>
 
     <aside class="pp-layers">
-      <div class="panel-head row">
-        <h2><span data-i18n="pp.layers">图层</span> <span class="muted sm" data-i18n="pp.layersHint">上=前景</span></h2>
+      <div class="pp-panel">
+        <div class="gen-tab-section-head pp-panel-head">
+          <span class="gen-tab-section-title" data-i18n="pp.layers">图层</span>
+          <span class="muted sm" data-i18n="pp.layersHint">上=前景</span>
+        </div>
+        <div class="pp-layer-btns">
+          <button type="button" class="btn sm" id="pp-add-image"><span class="btn-icon"></span> <span data-i18n="pp.addImage">图片</span></button>
+          <button type="button" class="btn sm" id="pp-add-text"><span class="btn-icon"></span> <span data-i18n="pp.addText">文字</span></button>
+        </div>
+        <div class="pp-layer-list" id="pp-layer-list"></div>
       </div>
-      <div class="pp-layer-btns">
-        <button type="button" class="btn sm" id="pp-add-image"><span class="btn-icon"></span> <span data-i18n="pp.addImage">图片</span></button>
-        <button type="button" class="btn sm" id="pp-add-text"><span class="btn-icon"></span> <span data-i18n="pp.addText">文字</span></button>
-      </div>
-      <div id="pp-layer-list"></div>
     </aside>
 
     <main class="pp-stage">
       <div class="pp-canvas-toolbar">
-        <button type="button" class="btn sm ghost" id="pp-zoom-out">−</button>
-        <span class="pill" id="pp-zoom-label">100%</span>
-        <button type="button" class="btn sm ghost" id="pp-zoom-in">+</button>
-        <button type="button" class="btn sm ghost" id="pp-zoom-fit" data-i18n="pp.zoomFit">适应</button>
-        <label class="check-modern check-inline">
-          <input type="checkbox" id="pp-solo" />
-          <span class="check-ui"></span>
-          <span class="check-text">Solo</span>
-        </label>
-        <button type="button" class="btn sm" id="pp-crop-toggle" data-i18n="pp.crop">裁切 (C)</button>
-        <button type="button" class="btn sm" id="pp-matte-toggle" data-i18n="pp.matteWandShort">橡皮擦抠图 (M)</button>
+        <div class="pp-toolbar-group" role="group" aria-label="Zoom">
+          <button type="button" class="btn sm ghost" id="pp-zoom-out">−</button>
+          <span class="pill pp-zoom-pill" id="pp-zoom-label">100%</span>
+          <button type="button" class="btn sm ghost" id="pp-zoom-in">+</button>
+          <button type="button" class="btn sm ghost" id="pp-zoom-fit" data-i18n="pp.zoomFit">适应</button>
+        </div>
+        <div class="pp-toolbar-group" role="group" aria-label="View">
+          <label class="check check-modern check-inline">
+            <input type="checkbox" id="pp-solo" />
+            <span class="check-ui"></span>
+            <span class="check-text">Solo</span>
+          </label>
+        </div>
+        <div class="pp-toolbar-group pp-toolbar-group-tools" role="group" aria-label="Tools">
+          <button type="button" class="btn sm" id="pp-crop-toggle" data-i18n="pp.crop">裁切 (C)</button>
+          <button type="button" class="btn sm" id="pp-matte-toggle" data-i18n="pp.matteWandShort">橡皮擦抠图 (M)</button>
+        </div>
         <span class="muted sm pp-shortcuts" id="pp-hint" data-i18n="pp.shortcuts">Del 删图层 · +/- 视图缩放/文字字号 · Enter 编辑文字 · Esc 取消 · Ctrl+S 保存</span>
         <div class="pp-toolbar-history">
           <button type="button" class="btn sm ghost icon-btn-text" id="pp-undo" disabled data-i18n-title="pp.undoTitle" title="撤销">
@@ -65,13 +82,15 @@
         </div>
       </div>
 
-      <div class="pp-viewport" id="pp-viewport">
-        <div class="pp-preview-ph" id="pp-preview-ph" data-i18n="pp.loadingPreview">加载预览…</div>
-        <img id="pp-preview" alt="" draggable="false" hidden />
-        <canvas id="pp-overlay"></canvas>
-        <div class="pp-matte-banner hidden" id="pp-matte-banner" role="status">
-          <span id="pp-matte-banner-text" data-i18n="pp.matteModeBanner">橡皮擦抠图 · 点击或拖动剔除同色</span>
-          <button type="button" class="btn sm ghost" id="pp-matte-exit" data-i18n="pp.matteExit">退出 (Esc)</button>
+      <div class="pp-viewport-wrap">
+        <div class="pp-viewport" id="pp-viewport">
+          <div class="pp-preview-ph" id="pp-preview-ph" data-i18n="pp.loadingPreview">加载预览…</div>
+          <img id="pp-preview" alt="" draggable="false" hidden />
+          <canvas id="pp-overlay"></canvas>
+          <div class="pp-matte-banner hidden" id="pp-matte-banner" role="status">
+            <span id="pp-matte-banner-text" data-i18n="pp.matteModeBanner">橡皮擦抠图 · 点击或拖动剔除同色</span>
+            <button type="button" class="btn sm ghost" id="pp-matte-exit" data-i18n="pp.matteExit">退出 (Esc)</button>
+          </div>
         </div>
       </div>
 
@@ -84,8 +103,8 @@
           <canvas id="pp-crop-canvas"></canvas>
           <div class="pp-crop-size" id="pp-crop-size">—</div>
         </div>
-        <div class="btn-row">
-          <button type="button" class="btn sm" id="pp-crop-commit" data-i18n="pp.cropCommit">确认裁切</button>
+        <div class="gen-tab-actions pp-crop-actions">
+          <button type="button" class="btn sm primary" id="pp-crop-commit" data-i18n="pp.cropCommit">确认裁切</button>
           <button type="button" class="btn sm ghost" id="pp-crop-cancel" data-i18n="pp.cropCancel">取消</button>
           <span class="muted sm" id="pp-crop-info"></span>
         </div>
@@ -93,148 +112,207 @@
     </main>
 
     <aside class="pp-props">
-      <h2 class="panel-head" data-i18n="pp.props">属性</h2>
-      <form id="pp-props-form" class="form-grid pp-props-form">
-        <fieldset id="pp-canvas-size-panel" class="span2 field-block" hidden>
-          <legend data-i18n="pp.canvasSize">画布尺寸</legend>
-          <p class="muted sm pp-canvas-size-hint" data-i18n="pp.canvasSizeHint">仅 source 编辑；应用时写入原图并更新资源尺寸</p>
-          <label><span data-i18n="pp.canvasWidth">宽</span>
-            <input id="pp-canvas-w" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" />
+      <div class="pp-panel pp-panel--props">
+        <div class="gen-tab-section-head pp-panel-head">
+          <span class="gen-tab-section-title" data-i18n="pp.props">属性</span>
+        </div>
+        <form id="pp-props-form" class="pp-props-form">
+          <fieldset id="pp-canvas-size-panel" class="pp-field-block" hidden>
+            <legend class="settings-subhead" data-i18n="pp.canvasSize">画布尺寸</legend>
+            <p class="settings-hint muted sm pp-canvas-size-hint" data-i18n="pp.canvasSizeHint">仅 source 编辑；应用时写入原图并更新资源尺寸</p>
+            <div class="settings-field-grid settings-field-grid--2">
+              <label class="gen-field">
+                <span data-i18n="pp.canvasWidth">宽</span>
+                <input id="pp-canvas-w" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" />
+              </label>
+              <label class="gen-field">
+                <span data-i18n="pp.canvasHeight">高</span>
+                <input id="pp-canvas-h" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" />
+              </label>
+            </div>
+          </fieldset>
+
+          <label class="gen-field">
+            <span data-i18n="pp.name">名称</span>
+            <input name="name" autocomplete="off" spellcheck="false" />
           </label>
-          <label><span data-i18n="pp.canvasHeight">高</span>
-            <input id="pp-canvas-h" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" />
-          </label>
-        </fieldset>
 
-        <label class="span2"><span data-i18n="pp.name">名称</span><input name="name" /></label>
-
-        <label class="span2 pp-range-field">
-          <span data-i18n="pp.opacity">不透明度</span>
-          <div class="range-row">
-            <input type="range" name="opacity_slider" min="0" max="100" step="1" />
-            <input name="opacity" type="number" min="0" max="1" step="0.01" class="range-num" />
-          </div>
-        </label>
-
-        <fieldset id="pp-image-fields" class="span2 field-block" hidden>
-          <legend data-i18n="pp.image">图片</legend>
-          <label class="span2 pp-source-row"><span data-i18n="pp.imageSource">图源（相对 ArtPipeline 或 $asset）</span>
-            <div class="pp-source-input">
-              <input name="source" placeholder="postprocess/bg.png" />
-              <button type="button" class="btn sm ghost" id="pp-browse-source" data-i18n="pp.browseImage" data-i18n-title="pp.browseImageTitle" title="选择图片文件">…</button>
+          <label class="gen-field pp-range-field">
+            <span data-i18n="pp.opacity">不透明度</span>
+            <div class="range-row">
+              <input type="range" name="opacity_slider" min="0" max="100" step="1" />
+              <input name="opacity" type="number" min="0" max="1" step="0.01" class="range-num" />
             </div>
           </label>
-          <fieldset id="pp-matte-fields" class="span2 field-block pp-matte-block">
-            <legend data-i18n="pp.matte">抠图</legend>
-            <p class="muted sm pp-matte-intro" data-i18n="pp.matteIntro">直接修改图层 PNG 的透明通道。外围模式适合纯色底；橡皮擦模式在预览上点击或按住拖动剔除同色区域。</p>
-            <label class="span2 pp-range-field">
-              <span data-i18n="pp.matteTolerance">颜色容差</span>
-              <div class="range-row">
-                <input type="range" id="pp-matte-tol" min="8" max="80" step="1" value="34" />
-                <input type="number" id="pp-matte-tol-num" min="8" max="80" step="1" value="34" class="range-num" />
+
+          <fieldset id="pp-image-fields" class="pp-field-block" hidden>
+            <legend class="settings-subhead" data-i18n="pp.image">图片</legend>
+            <label class="gen-field">
+              <span data-i18n="pp.imageSource">图源（相对 ArtPipeline 或 $asset）</span>
+              <div class="pp-source-input">
+                <input name="source" placeholder="postprocess/bg.png" autocomplete="off" spellcheck="false" />
+                <button type="button" class="btn sm ghost" id="pp-browse-source" data-i18n="pp.browseImage" data-i18n-title="pp.browseImageTitle" title="选择图片文件">…</button>
               </div>
             </label>
-            <div class="btn-row span2">
-              <button type="button" class="btn sm" id="pp-matte-border" data-i18n="pp.matteBorder">去除外围纯色</button>
-              <button type="button" class="btn sm primary" id="pp-matte-wand" data-i18n="pp.matteWand">进入橡皮擦抠图</button>
-            </div>
-            <p class="muted sm pp-matte-hint" id="pp-matte-hint" data-i18n="pp.matteWandHint">橡皮擦模式：点击或按住拖动剔除同色区域；Esc 退出。</p>
+            <fieldset id="pp-matte-fields" class="pp-field-block pp-matte-block">
+              <legend class="settings-subhead" data-i18n="pp.matte">抠图</legend>
+              <p class="settings-hint muted sm pp-matte-intro" data-i18n="pp.matteIntro">直接修改图层 PNG 的透明通道。外围模式适合纯色底；橡皮擦模式在预览上点击或按住拖动剔除同色区域。</p>
+              <label class="gen-field pp-range-field">
+                <span data-i18n="pp.matteTolerance">颜色容差</span>
+                <div class="range-row">
+                  <input type="range" id="pp-matte-tol" min="8" max="80" step="1" value="34" />
+                  <input type="number" id="pp-matte-tol-num" min="8" max="80" step="1" value="34" class="range-num" />
+                </div>
+              </label>
+              <div class="gen-tab-actions pp-matte-actions">
+                <button type="button" class="btn sm" id="pp-matte-border" data-i18n="pp.matteBorder">去除外围纯色</button>
+                <button type="button" class="btn sm primary" id="pp-matte-wand" data-i18n="pp.matteWand">进入橡皮擦抠图</button>
+              </div>
+              <p class="settings-hint muted sm pp-matte-hint" id="pp-matte-hint" data-i18n="pp.matteWandHint">橡皮擦模式：点击或按住拖动剔除同色区域；Esc 退出。</p>
+            </fieldset>
           </fieldset>
-        </fieldset>
 
-        <label><span data-i18n="pp.offsetX">偏移 X</span><input name="offset_x" type="number" step="1" /></label>
-        <label><span data-i18n="pp.offsetY">偏移 Y</span><input name="offset_y" type="number" step="1" /></label>
-        <label class="span2 pp-range-field">
-          <span data-i18n="pp.scale">缩放</span>
-          <div class="range-row">
-            <input type="range" name="scale_slider" min="5" max="300" step="1" />
-            <input name="scale_pct" type="number" min="1" max="800" step="1" class="range-num" />
-            <span class="range-tag" id="scale-tag">100%</span>
+          <div class="settings-field-grid settings-field-grid--2">
+            <label class="gen-field">
+              <span data-i18n="pp.offsetX">偏移 X</span>
+              <input name="offset_x" type="number" step="1" />
+            </label>
+            <label class="gen-field">
+              <span data-i18n="pp.offsetY">偏移 Y</span>
+              <input name="offset_y" type="number" step="1" />
+            </label>
           </div>
-        </label>
 
-        <fieldset class="span2 field-block pp-xform-block">
-          <legend data-i18n="pp.transform">变换</legend>
-          <div class="pp-flip-row">
-            <button type="button" class="pp-tool-btn" id="pp-flip-h" data-i18n-title="pp.flipHTitle" title="水平镜像">
-              <span class="pp-tool-icon" aria-hidden="true">↔</span>
-              <span data-i18n="pp.flipH">水平镜像</span>
-            </button>
-            <button type="button" class="pp-tool-btn" id="pp-flip-v" data-i18n-title="pp.flipVTitle" title="垂直镜像">
-              <span class="pp-tool-icon" aria-hidden="true">↕</span>
-              <span data-i18n="pp.flipV">垂直镜像</span>
-            </button>
-            <button type="button" class="pp-tool-btn ghost" id="pp-rotation-reset" data-i18n-title="pp.rotationResetTitle" title="重置旋转">
-              <span class="pp-tool-icon" aria-hidden="true">⟲</span>
-              <span data-i18n="pp.rotationReset">归零</span>
-            </button>
-          </div>
-          <label class="span2 pp-range-field">
-            <span data-i18n="pp.rotation">旋转</span>
+          <label class="gen-field pp-range-field">
+            <span data-i18n="pp.scale">缩放</span>
             <div class="range-row">
-              <input type="range" name="rotation_slider" min="-180" max="180" step="1" value="0" />
-              <input name="rotation" type="number" min="-180" max="180" step="1" class="range-num" value="0" />
-              <span class="range-tag" id="rotation-tag">0°</span>
+              <input type="range" name="scale_slider" min="5" max="300" step="1" />
+              <input name="scale_pct" type="number" min="1" max="800" step="1" class="range-num" />
+              <span class="range-tag" id="scale-tag">100%</span>
             </div>
           </label>
-          <div class="pp-pivot-panel">
-            <div class="pp-pivot-head">
-              <span data-i18n="pp.pivot">旋转轴心</span>
-              <span class="muted sm" data-i18n="pp.pivotHint">点击预设或微调百分比</span>
+
+          <fieldset class="pp-field-block pp-xform-block">
+            <legend class="settings-subhead" data-i18n="pp.transform">变换</legend>
+            <div class="pp-flip-row">
+              <button type="button" class="pp-tool-btn" id="pp-flip-h" data-i18n-title="pp.flipHTitle" title="水平镜像">
+                <span class="pp-tool-icon" aria-hidden="true">↔</span>
+                <span data-i18n="pp.flipH">水平镜像</span>
+              </button>
+              <button type="button" class="pp-tool-btn" id="pp-flip-v" data-i18n-title="pp.flipVTitle" title="垂直镜像">
+                <span class="pp-tool-icon" aria-hidden="true">↕</span>
+                <span data-i18n="pp.flipV">垂直镜像</span>
+              </button>
+              <button type="button" class="pp-tool-btn ghost" id="pp-rotation-reset" data-i18n-title="pp.rotationResetTitle" title="重置旋转">
+                <span class="pp-tool-icon" aria-hidden="true">⟲</span>
+                <span data-i18n="pp.rotationReset">归零</span>
+              </button>
             </div>
-            <div class="pp-pivot-grid" id="pp-pivot-grid" role="group" aria-label="Pivot presets">
-              <button type="button" class="pp-pivot-cell" data-pivot="0,0" title="↖"></button>
-              <button type="button" class="pp-pivot-cell" data-pivot="0.5,0" title="↑"></button>
-              <button type="button" class="pp-pivot-cell" data-pivot="1,0" title="↗"></button>
-              <button type="button" class="pp-pivot-cell" data-pivot="0,0.5" title="←"></button>
-              <button type="button" class="pp-pivot-cell active" data-pivot="0.5,0.5" title="●"></button>
-              <button type="button" class="pp-pivot-cell" data-pivot="1,0.5" title="→"></button>
-              <button type="button" class="pp-pivot-cell" data-pivot="0,1" title="↙"></button>
-              <button type="button" class="pp-pivot-cell" data-pivot="0.5,1" title="↓"></button>
-              <button type="button" class="pp-pivot-cell" data-pivot="1,1" title="↘"></button>
+            <label class="gen-field pp-range-field">
+              <span data-i18n="pp.rotation">旋转</span>
+              <div class="range-row">
+                <input type="range" name="rotation_slider" min="-180" max="180" step="1" value="0" />
+                <input name="rotation" type="number" min="-180" max="180" step="1" class="range-num" value="0" />
+                <span class="range-tag" id="rotation-tag">0°</span>
+              </div>
+            </label>
+            <div class="pp-pivot-panel">
+              <div class="pp-pivot-head">
+                <span data-i18n="pp.pivot">旋转轴心</span>
+                <span class="muted sm" data-i18n="pp.pivotHint">点击预设或微调百分比</span>
+              </div>
+              <div class="pp-pivot-grid" id="pp-pivot-grid" role="group" aria-label="Pivot presets">
+                <button type="button" class="pp-pivot-cell" data-pivot="0,0" title="↖"></button>
+                <button type="button" class="pp-pivot-cell" data-pivot="0.5,0" title="↑"></button>
+                <button type="button" class="pp-pivot-cell" data-pivot="1,0" title="↗"></button>
+                <button type="button" class="pp-pivot-cell" data-pivot="0,0.5" title="←"></button>
+                <button type="button" class="pp-pivot-cell active" data-pivot="0.5,0.5" title="●"></button>
+                <button type="button" class="pp-pivot-cell" data-pivot="1,0.5" title="→"></button>
+                <button type="button" class="pp-pivot-cell" data-pivot="0,1" title="↙"></button>
+                <button type="button" class="pp-pivot-cell" data-pivot="0.5,1" title="↓"></button>
+                <button type="button" class="pp-pivot-cell" data-pivot="1,1" title="↘"></button>
+              </div>
+              <div class="pp-pivot-inputs">
+                <label class="gen-field gen-field--compact">
+                  <span data-i18n="pp.pivotX">轴心 X</span>
+                  <input name="pivot_x_pct" type="number" min="0" max="100" step="1" value="50" />
+                </label>
+                <label class="gen-field gen-field--compact">
+                  <span data-i18n="pp.pivotY">轴心 Y</span>
+                  <input name="pivot_y_pct" type="number" min="0" max="100" step="1" value="50" />
+                </label>
+              </div>
             </div>
-            <div class="pp-pivot-inputs">
-              <label><span data-i18n="pp.pivotX">轴心 X</span><input name="pivot_x_pct" type="number" min="0" max="100" step="1" value="50" /><span class="pp-unit">%</span></label>
-              <label><span data-i18n="pp.pivotY">轴心 Y</span><input name="pivot_y_pct" type="number" min="0" max="100" step="1" value="50" /><span class="pp-unit">%</span></label>
-            </div>
+          </fieldset>
+
+          <div class="gen-tab-actions pp-xform-actions">
+            <button type="button" class="btn sm" id="pp-center" data-i18n="pp.center">归位 0,0</button>
+            <button type="button" class="btn sm" id="pp-x0" data-i18n="pp.x0">X→0</button>
+            <button type="button" class="btn sm" id="pp-y0" data-i18n="pp.y0">Y→0</button>
+            <button type="button" class="btn sm" id="pp-scale100" data-i18n="pp.scale100">缩放 100%</button>
+            <button type="button" class="btn sm" id="pp-reset-xform" data-i18n="pp.resetXform">重置变换</button>
           </div>
-        </fieldset>
 
-        <div class="btn-row span2">
-          <button type="button" class="btn sm" id="pp-center" data-i18n="pp.center">归位 0,0</button>
-          <button type="button" class="btn sm" id="pp-x0" data-i18n="pp.x0">X→0</button>
-          <button type="button" class="btn sm" id="pp-y0" data-i18n="pp.y0">Y→0</button>
-          <button type="button" class="btn sm" id="pp-scale100" data-i18n="pp.scale100">缩放 100%</button>
-          <button type="button" class="btn sm" id="pp-reset-xform" data-i18n="pp.resetXform">重置变换</button>
-        </div>
+          <fieldset id="pp-text-fields" class="pp-field-block" hidden>
+            <legend class="settings-subhead" data-i18n="pp.text">文字</legend>
+            <label class="gen-field">
+              <span data-i18n="pp.textContent">内容</span>
+              <textarea name="text_content" rows="2" spellcheck="false"></textarea>
+            </label>
+            <div class="settings-field-grid settings-field-grid--2">
+              <label class="gen-field">
+                <span data-i18n="pp.fontSize">字号</span>
+                <input name="font_size" type="number" min="8" max="256" />
+              </label>
+              <label class="gen-field">
+                <span data-i18n="pp.color">颜色</span>
+                <input name="text_color" type="color" class="input-color" />
+              </label>
+            </div>
+            <label class="gen-field">
+              <span data-i18n="pp.font">字体</span>
+              <select name="font_family" id="pp-fonts"></select>
+            </label>
+          </fieldset>
 
-        <fieldset id="pp-text-fields" class="span2 field-block" hidden>
-          <legend data-i18n="pp.text">文字</legend>
-          <label class="span2"><span data-i18n="pp.textContent">内容</span><textarea name="text_content" rows="2"></textarea></label>
-          <label><span data-i18n="pp.fontSize">字号</span><input name="font_size" type="number" min="8" max="256" /></label>
-          <label><span data-i18n="pp.color">颜色</span><input name="text_color" type="color" class="input-color" /></label>
-          <label class="span2"><span data-i18n="pp.font">字体</span><select name="font_family" id="pp-fonts"></select></label>
-        </fieldset>
-
-        <fieldset id="pp-crop-fields" class="span2 field-block" hidden>
-          <legend data-i18n="pp.cropRegion">裁切区域</legend>
-          <label><span data-i18n="pp.cropX">X</span><input name="crop_x" type="number" min="0" /></label>
-          <label><span data-i18n="pp.cropY">Y</span><input name="crop_y" type="number" min="0" /></label>
-          <label><span data-i18n="pp.cropW">宽</span><input name="crop_w" type="number" min="1" /></label>
-          <label><span data-i18n="pp.cropH">高</span><input name="crop_h" type="number" min="1" /></label>
-          <div class="btn-row span2">
-            <button type="button" class="btn sm" id="pp-clear-crop" data-i18n="pp.clearCrop">清除裁切</button>
-          </div>
-        </fieldset>
-      </form>
+          <fieldset id="pp-crop-fields" class="pp-field-block" hidden>
+            <legend class="settings-subhead" data-i18n="pp.cropRegion">裁切区域</legend>
+            <div class="settings-field-grid settings-field-grid--2">
+              <label class="gen-field">
+                <span data-i18n="pp.cropX">X</span>
+                <input name="crop_x" type="number" min="0" />
+              </label>
+              <label class="gen-field">
+                <span data-i18n="pp.cropY">Y</span>
+                <input name="crop_y" type="number" min="0" />
+              </label>
+              <label class="gen-field">
+                <span data-i18n="pp.cropW">宽</span>
+                <input name="crop_w" type="number" min="1" />
+              </label>
+              <label class="gen-field">
+                <span data-i18n="pp.cropH">高</span>
+                <input name="crop_h" type="number" min="1" />
+              </label>
+            </div>
+            <div class="gen-tab-actions">
+              <button type="button" class="btn sm" id="pp-clear-crop" data-i18n="pp.clearCrop">清除裁切</button>
+            </div>
+          </fieldset>
+        </form>
+      </div>
     </aside>
 
-    <footer class="pp-foot">
-      <button type="button" class="btn" id="pp-restore-source" data-i18n="pp.restoreSource" data-i18n-title="pp.restoreSourceTitle" title="用 source 原图覆盖 inbox，并重置图层">从 source 还原</button>
-      <button type="button" class="btn primary" id="pp-save" data-i18n="pp.saveConfig">保存配置</button>
-      <button type="button" class="btn primary" id="pp-export-unity" data-i18n="pp.exportEngine">导出到游戏引擎</button>
-      <button type="button" class="btn" id="pp-apply" data-i18n="pp.applyInbox">应用到 inbox</button>
-      <span class="muted" id="pp-status" data-i18n="pp.ready">就绪</span>
+    <footer class="pp-foot settings-form-foot">
+      <div class="pp-foot-main">
+        <div class="pp-foot-actions settings-form-actions">
+          <button type="button" class="btn" id="pp-restore-source" data-i18n="pp.restoreSource" data-i18n-title="pp.restoreSourceTitle" title="用 source 原图覆盖 inbox，并重置图层">从 source 还原</button>
+          <button type="button" class="btn" id="pp-apply" data-i18n="pp.applyInbox">应用到 inbox</button>
+          <button type="button" class="btn primary" id="pp-save" data-i18n="pp.saveConfig">保存配置</button>
+          <button type="button" class="btn primary" id="pp-export-unity" data-i18n="pp.exportEngine">导出到游戏引擎</button>
+        </div>
+        <span class="pp-foot-status muted sm" id="pp-status" data-i18n="pp.ready">就绪</span>
+      </div>
     </footer>
   </div>
   <script type="module" src="/js/postprocess.js"></script>
