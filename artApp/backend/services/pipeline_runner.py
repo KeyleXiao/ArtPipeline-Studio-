@@ -97,8 +97,9 @@ class PipelineRunner:
         with self._lock:
             self.state.busy = busy
             self.state.kind = kind if busy else ""
-            if not busy:
+            if busy:
                 self.state.progress = {}
+            if not busy:
                 self.state.cancel_requested = False
 
     def _set_progress(self, info: dict[str, Any]) -> None:
@@ -163,7 +164,10 @@ class PipelineRunner:
                             break
                         req = self._queue.popleft()
                         self.state.run_id = req.run_id
-                    self._set_busy(True, req.kind)
+                        self.state.busy = True
+                        self.state.kind = req.kind
+                        self.state.cancel_requested = False
+                        self.state.progress = {}
                     self._set_progress({"kind": "status", "message": "任务启动中…"})
                     try:
                         if req.kind == "generate":
@@ -250,7 +254,7 @@ class PipelineRunner:
                     "cloud_tasks": [],
                 }
             )
-            run_cloud_batch(
+            results = run_cloud_batch(
                 config,
                 cloud_assets,
                 to_inbox=True,
@@ -259,6 +263,12 @@ class PipelineRunner:
                 progress_cb=progress_cb,
                 cancel_event=cancel_event,
             )
+            ok_n = sum(1 for r in results if getattr(r, "ok", False))
+            fail_n = len(results) - ok_n
+            if fail_n and ok_n:
+                log_bus.log(f"云生成完成: 成功 {ok_n}，失败 {fail_n}", kind="生成")
+            elif fail_n and not ok_n:
+                log_bus.log(f"云生成全部失败 ({fail_n})", kind="生成")
 
         if cancel_event.is_set():
             log_bus.log("── 已取消 ──", kind="生成")

@@ -19,6 +19,36 @@ def bundle_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def resolve_web_dir() -> Path:
+    """定位 web 静态资源（开发 / PyInstaller .app 内 Resources 或 Frameworks  symlink）。"""
+    candidates: list[Path] = [bundle_root() / "web"]
+    if is_frozen():
+        exe = Path(sys.executable).resolve()
+        contents = exe.parent.parent
+        candidates.extend(
+            [
+                contents / "Resources" / "web",
+                contents / "Frameworks" / "web",
+                exe.parent / "web",
+            ]
+        )
+    else:
+        candidates.append(Path(__file__).resolve().parent.parent / "web")
+    seen: set[str] = set()
+    for cand in candidates:
+        key = str(cand)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            resolved = cand.resolve()
+        except OSError:
+            resolved = cand
+        if (resolved / "index.html").is_file():
+            return resolved
+    return candidates[0]
+
+
 def _resolve_bundled_tools() -> Path:
     """PyInstaller .app 内 tools 目录（Frameworks 或 Resources）。"""
     roots: list[Path] = []

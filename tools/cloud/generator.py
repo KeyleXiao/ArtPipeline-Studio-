@@ -182,7 +182,7 @@ def generate_one_cloud(
     if is_edit_only:
         inbox_path.parent.mkdir(parents=True, exist_ok=True)
         inbox_path.write_bytes(data)
-        _log(log, f"  inbox  → {config.rel_to_project(inbox_path)} (图像编辑)")
+        _log(log, f"  inbox  → {config.rel_to_project(inbox_path)} (图像编辑，不写 source)")
         return GenerateResult(asset.id, True, "ok", inbox_path)
     src_path.parent.mkdir(parents=True, exist_ok=True)
     src_path.write_bytes(data)

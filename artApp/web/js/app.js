@@ -39,8 +39,9 @@ const state = {
   logEs: null,
   jobTimer: null,
   jobRunId: null,
-  jobTrack: { active: false, sawBusy: false, postOk: false },
+  jobTrack: { active: false, sawBusy: false, postOk: false, submittedAt: 0 },
   paths: null,
+  apiPortals: {},
   previewReq: 0,
   previewBlobUrl: null,
   previewInfo: null,
@@ -67,6 +68,10 @@ const previewView = {
 let appBooted = false;
 
 const AI_MODE_KEYS = ["free", "prompt", "refine", "workflow", "basic"];
+const AI_INTRO_DISMISSED_KEY = "aiIntroDismissed";
+let aiIntroAutoHideTimer = null;
+let aiIntroAutoHideScheduled = false;
+let aiIntroDismissedMemory = false;
 const CLOUD_PROVIDER_TAB_ORDER = ["dashscope", "tencent", "volcengine", "stability"];
 
 function aiModeText(mode, field) {
@@ -171,9 +176,13 @@ async function runGenerate(assetIds, { exportAfter = false, emptyToastKey = "toa
     toast(t(emptyToastKey));
     return;
   }
-  if (!(await ensureComfyOnline())) return;
+  if (batchNeedsComfy(assetIds) && !(await ensureComfyOnline())) return;
   if (state.assetId && assetIds.includes(state.assetId)) {
-    await saveGenModeOnly();
+    if (assetUsesCloudBackend()) {
+      await persistCloudAssetFields();
+    } else {
+      await saveGenModeOnly();
+    }
   }
   markJobSubmitting("generate", assetIds);
   try {
@@ -331,6 +340,18 @@ function effectiveCheckpointForAsset(data = state.assetFull) {
 
 function assetUsesCloudBackend(data = state.assetFull) {
   return isCloudCheckpoint(effectiveCheckpointForAsset(data));
+}
+
+function resolveCheckpointForAssetId(assetId) {
+  if (assetId === state.assetId && state.assetFull) {
+    return effectiveCheckpointForAsset(state.assetFull);
+  }
+  const row = state.assets.find((a) => a.id === assetId);
+  return row?.checkpoint_effective || row?.checkpoint || "";
+}
+
+function batchNeedsComfy(assetIds) {
+  return (assetIds || []).some((id) => !isCloudCheckpoint(resolveCheckpointForAssetId(id)));
 }
 
 function cloudProviderFromCheckpoint(checkpoint) {
@@ -565,16 +586,21 @@ async function pickCloudRefImage(btn) {
   });
 }
 
+async function persistCloudAssetFields() {
+  if (!state.assetId || genModeHydrating) return;
+  const body = {
+    cloud_prompt: $("#cloud-prompt-text")?.value || "",
+    cloud_negative: $("#cloud-negative-text")?.value || "",
+    ...cloudGenModePayloadFromForm(),
+  };
+  state.assetFull = await API.put(`/api/assets/${state.assetId}`, body);
+  updateCloudGenModeUi();
+}
+
 async function saveCloudPrompts(btn) {
   if (!state.assetId) return;
   await withBtnBusy(btn || document.querySelector('[data-action="save-cloud-prompts"]'), async () => {
-    const body = {
-      cloud_prompt: $("#cloud-prompt-text")?.value || "",
-      cloud_negative: $("#cloud-negative-text")?.value || "",
-      ...cloudGenModePayloadFromForm(),
-    };
-    state.assetFull = await API.put(`/api/assets/${state.assetId}`, body);
-    updateCloudGenModeUi();
+    await persistCloudAssetFields();
     toast(t("toast.promptsSaved"));
   }).catch((err) => {
     if (err) toast(err.message);
@@ -1043,6 +1069,7 @@ async function loadSettingsForm() {
     if (el) el.value = val ?? "";
   }
   updateLogDirHint(data);
+  state.apiPortals = data.api_portals || {};
   resetAllCloudApiStatuses();
   resetDeepseekApiStatus();
 }
@@ -1333,7 +1360,47 @@ async function refreshAiMessages() {
   }
 }
 
+function isAiIntroDismissed() {
+  if (aiIntroDismissedMemory) return true;
+  try {
+    return sessionStorage.getItem(AI_INTRO_DISMISSED_KEY) === "1";
+  } catch {
+    return aiIntroDismissedMemory;
+  }
+}
+
+function dismissAiIntro() {
+  aiIntroDismissedMemory = true;
+  if (aiIntroAutoHideTimer) {
+    clearTimeout(aiIntroAutoHideTimer);
+    aiIntroAutoHideTimer = null;
+  }
+  try {
+    sessionStorage.setItem(AI_INTRO_DISMISSED_KEY, "1");
+  } catch {
+    /* ignore */
+  }
+  $("#ai-intro-section")?.classList.add("is-hidden");
+}
+
+function setupAiIntroBanner() {
+  const section = $("#ai-intro-section");
+  if (!section) return;
+  if (isAiIntroDismissed()) {
+    section.classList.add("is-hidden");
+    return;
+  }
+  section.classList.remove("is-hidden");
+  if (aiIntroAutoHideScheduled) return;
+  aiIntroAutoHideScheduled = true;
+  aiIntroAutoHideTimer = setTimeout(() => {
+    aiIntroAutoHideTimer = null;
+    dismissAiIntro();
+  }, 5000);
+}
+
 async function openAiPanel() {
+  setupAiIntroBanner();
   updateAiModeUi();
   await refreshAiMessages();
 }
@@ -2017,12 +2084,15 @@ function resetJobProg(kind = "") {
   jobProg.queueItems = [];
   jobProg.queuedCount = 0;
   jobProg.submitting = false;
+  jobProg.cloudTasks = [];
 }
 
 function resetJobTracking() {
   state.jobRunId = null;
-  state.jobTrack = { active: false, sawBusy: false, postOk: false };
+  state.jobTrack = { active: false, sawBusy: false, postOk: false, submittedAt: 0 };
 }
+
+const JOB_START_GRACE_MS = 3000;
 
 function stopJobPoll() {
   if (state.jobTimer) {
@@ -2032,14 +2102,18 @@ function stopJobPoll() {
 }
 
 function markJobSubmitting(kind, assetIds) {
+  stopJobPoll();
   state.jobTrack.active = true;
+  state.jobTrack.sawBusy = false;
   state.jobTrack.postOk = false;
+  state.jobTrack.submittedAt = Date.now();
   jobProg.submitting = true;
   if (!jobProg.lastApiKind) jobProg.lastApiKind = kind;
   jobProg.filename = jobLabelForAssets(assetIds);
   jobProg.message = t("job.submitting");
   jobProg.batchTotal = Math.max(assetIds.length, 1);
   jobProg.batchIdx = 1;
+  jobProg.cloudTasks = [];
   showJobFloat();
   const pill = $("#job-pill");
   if (pill) {
@@ -2067,8 +2141,15 @@ function clearJobUi() {
   jobProg.cancelling = false;
 }
 
-function finishJobUi({ quickFail = false } = {}) {
+function collectCloudTaskFailures() {
+  return (jobProg.cloudTasks || []).filter(
+    (task) => String(task.status || "").toUpperCase() === "FAILED",
+  );
+}
+
+function finishJobUi({ quickFail = false, cloudFailures = null } = {}) {
   const wasGenerate = jobProg.lastApiKind === "generate";
+  const failures = cloudFailures ?? collectCloudTaskFailures();
   stopJobPoll();
   resetJobTracking();
   hideJobFloat();
@@ -2079,10 +2160,19 @@ function finishJobUi({ quickFail = false } = {}) {
     delete pill.dataset.busy;
   }
   jobProg.cancelling = false;
-  void notifyJobFinish({ quickFail, wasGenerate });
+  void notifyJobFinish({ quickFail, wasGenerate, cloudFailures: failures });
 }
 
-async function notifyJobFinish({ quickFail, wasGenerate }) {
+async function notifyJobFinish({ quickFail, wasGenerate, cloudFailures = [] }) {
+  if (cloudFailures.length) {
+    const lines = cloudFailures.map((task) => {
+      const name = task.filename || task.asset_id || "…";
+      const msg = task.message || t("cloud.taskFailed");
+      return `${name}: ${msg}`;
+    });
+    toast(lines.join("\n"), { variant: "error" });
+    return;
+  }
   if (!wasGenerate && !quickFail) return;
   try {
     const data = await API.get("/api/logs?tab=生成&limit=40");
@@ -2094,7 +2184,12 @@ async function notifyJobFinish({ quickFail, wasGenerate }) {
         m.includes("未配置") ||
         m.includes("没有可生成") ||
         m.includes("不存在") ||
-        m.includes("ComfyUI")
+        m.includes("ComfyUI") ||
+        m.includes("云 prompt") ||
+        m.includes("即梦") ||
+        m.includes("万相") ||
+        m.includes("混元") ||
+        m.includes("HTTP ")
       );
     });
     if (failLine) {
@@ -2109,6 +2204,18 @@ async function notifyJobFinish({ quickFail, wasGenerate }) {
   }
 }
 
+function cloudTaskStatusLabel(status) {
+  const key = {
+    PENDING: "cloud.taskPending",
+    SUBMITTING: "cloud.taskRunning",
+    RUNNING: "cloud.taskRunning",
+    DOWNLOADING: "cloud.taskDownloading",
+    SUCCEEDED: "cloud.taskDone",
+    FAILED: "cloud.taskFailed",
+  }[String(status || "").toUpperCase()];
+  return key ? t(key) : status || "";
+}
+
 function ingestJobProgress(p) {
   if (!p?.kind) return;
   const kind = p.kind;
@@ -2117,19 +2224,27 @@ function ingestJobProgress(p) {
     jobProg.cloudTasks = Array.isArray(p.cloud_tasks) ? p.cloud_tasks : jobProg.cloudTasks;
     if (p.overall_pct != null) jobProg.stepPct = parseInt(p.overall_pct, 10) || jobProg.stepPct;
     if (p.filename) jobProg.filename = p.filename;
-    const running = jobProg.cloudTasks.find((t) => t.status === "RUNNING" || t.status === "PENDING");
+    if (p.index != null) jobProg.batchIdx = parseInt(p.index, 10) || jobProg.batchIdx || 0;
+    if (p.total != null) jobProg.batchTotal = Math.max(parseInt(p.total, 10) || 1, 1);
+    const running = jobProg.cloudTasks.find((task) =>
+      ["RUNNING", "PENDING", "SUBMITTING", "DOWNLOADING"].includes(String(task.status || "").toUpperCase()),
+    );
     if (running?.message) jobProg.message = running.message;
+    else if (p.overall_pct != null) jobProg.stepPct = parseInt(p.overall_pct, 10) || jobProg.stepPct;
     return;
   }
   if (p.index != null) {
-    jobProg.batchIdx = parseInt(p.index, 10) || jobProg.batchIdx || 1;
+    jobProg.batchIdx = parseInt(p.index, 10) || jobProg.batchIdx || 0;
   }
   if (p.total != null) {
     jobProg.batchTotal = Math.max(parseInt(p.total, 10) || 1, 1);
   }
   if (p.filename) jobProg.filename = p.filename;
+  if (Array.isArray(p.cloud_tasks) && p.cloud_tasks.length) {
+    jobProg.cloudTasks = p.cloud_tasks;
+  }
   if (kind === "batch") {
-    jobProg.stepPct = 0;
+    if (!jobProg.cloudTasks?.length) jobProg.stepPct = 0;
   } else if (kind === "progress") {
     const val = parseInt(p.value, 10) || 0;
     const mx = Math.max(parseInt(p.max, 10) || 1, 1);
@@ -2161,15 +2276,21 @@ function overallJobPct() {
   if (jobProg.lastApiKind === "export") return null;
   if (jobProg.cloudTasks?.length) {
     const tasks = jobProg.cloudTasks;
-    const sum = tasks.reduce((acc, t) => acc + (parseInt(t.pct, 10) || 0), 0);
+    const sum = tasks.reduce((acc, task) => acc + (parseInt(task.pct, 10) || 0), 0);
     const cloudPart = sum / Math.max(tasks.length, 1) / 100;
     const total = Math.max(jobProg.batchTotal, 1);
-    const idx = Math.max(jobProg.batchIdx, 0);
+    const idx = Math.max(Number(jobProg.batchIdx) || 0, 0);
     return Math.min(100, Math.max(0, Math.floor(((idx + cloudPart) / total) * 100)));
   }
-  if (!jobProg.batchIdx) return null;
+  if (jobProg.phase === "cloud_batch" && jobProg.stepPct > 0) {
+    return Math.min(100, jobProg.stepPct);
+  }
+  const idx = Number(jobProg.batchIdx);
+  if (!Number.isFinite(idx) || idx < 1) {
+    if (jobProg.stepPct > 0 && jobProg.message) return Math.min(100, jobProg.stepPct);
+    return null;
+  }
   const total = Math.max(jobProg.batchTotal, 1);
-  const idx = Math.max(jobProg.batchIdx, 1);
   return Math.min(
     100,
     Math.max(0, Math.floor(((idx - 1) + jobProg.stepPct / 100) / total * 100))
@@ -2208,12 +2329,16 @@ function renderJobFloat() {
   }
 
   const pct = overallJobPct();
+  const cloudActive = (jobProg.cloudTasks || []).some((task) =>
+    ["PENDING", "RUNNING", "SUBMITTING", "DOWNLOADING"].includes(String(task.status || "").toUpperCase()),
+  );
   const waiting =
     jobProg.stepPct < 100 &&
-    ["queue", "running", "status", "executing"].includes(jobProg.phase);
+    (["queue", "running", "status", "executing", "cloud_batch"].includes(jobProg.phase) || cloudActive);
+  const hasCloudProgress = jobProg.phase === "cloud_batch" || (jobProg.cloudTasks?.length ?? 0) > 0;
   const indeterminate =
     isExport ||
-    jobProg.submitting ||
+    (jobProg.submitting && !hasCloudProgress) ||
     pct === null ||
     (pct === 0 && waiting && !jobProg.message);
 
@@ -2265,6 +2390,27 @@ function renderJobFloat() {
       queueEl.innerHTML = "";
     }
   }
+  const cloudEl = $("#job-float-cloud");
+  if (cloudEl) {
+    const tasks = jobProg.cloudTasks || [];
+    if (tasks.length) {
+      cloudEl.classList.remove("hidden");
+      cloudEl.innerHTML = tasks
+        .map(
+          (task) => `<li class="job-float-cloud-item">
+            <span class="job-float-cloud-pct">${Math.max(0, Math.min(100, parseInt(task.pct, 10) || 0))}%</span>
+            <span class="job-float-cloud-copy">
+              <span class="job-float-cloud-label">${esc(task.filename || task.message || "…")}</span>
+              <span class="job-float-cloud-kind">${esc(task.message || cloudTaskStatusLabel(task.status))}</span>
+            </span>
+          </li>`,
+        )
+        .join("");
+    } else {
+      cloudEl.classList.add("hidden");
+      cloudEl.innerHTML = "";
+    }
+  }
 }
 
 function showJobFloat() {
@@ -2295,19 +2441,29 @@ function updateJobFromApi(j) {
   jobProg.submitting = false;
   jobProg.queueItems = Array.isArray(j.queue) ? j.queue : [];
   jobProg.queuedCount = Math.max(parseInt(j.queued_count, 10) || 0, 0);
+  const prog = j.progress || {};
   if (Array.isArray(j.cloud_tasks)) jobProg.cloudTasks = j.cloud_tasks;
+  else if (Array.isArray(prog.cloud_tasks)) jobProg.cloudTasks = prog.cloud_tasks;
 
   const hasQueue = jobProg.queuedCount > 0 || jobProg.queueItems.length > 0;
+  if (
+    j.busy ||
+    hasQueue ||
+    prog.kind === "cloud_batch" ||
+    (jobProg.cloudTasks?.length ?? 0) > 0
+  ) {
+    state.jobTrack.sawBusy = true;
+  }
 
   if (j.busy) {
     if (!state.jobTrack.active) {
-      state.jobTrack = { active: true, sawBusy: true, postOk: true };
+      state.jobTrack = { active: true, sawBusy: true, postOk: true, submittedAt: state.jobTrack.submittedAt || 0 };
     } else {
       state.jobTrack.sawBusy = true;
     }
     if (j.run_id != null) state.jobRunId = j.run_id;
     if (j.kind) jobProg.lastApiKind = j.kind;
-    ingestJobProgress(j.progress || {});
+    ingestJobProgress(prog);
     showJobFloat();
     renderJobFloat();
     if (pill) {
@@ -2335,8 +2491,19 @@ function updateJobFromApi(j) {
     return;
   }
 
+  if (state.jobTrack.active && state.jobTrack.postOk && !state.jobTrack.sawBusy) {
+    const elapsed = Date.now() - (state.jobTrack.submittedAt || 0);
+    if (elapsed < JOB_START_GRACE_MS) {
+      showJobFloat();
+      renderJobFloat();
+      return;
+    }
+  }
+
   const quickFail = state.jobTrack.active && state.jobTrack.postOk && !state.jobTrack.sawBusy;
-  finishJobUi({ quickFail });
+  if (prog?.kind) ingestJobProgress(prog);
+  const cloudFailures = collectCloudTaskFailures();
+  finishJobUi({ quickFail, cloudFailures });
   if (state.assetId) {
     loadPreview();
     loadPreviewInfo(state.assetId);
@@ -2345,7 +2512,6 @@ function updateJobFromApi(j) {
 }
 
 function ensureJobPoll() {
-  if (state.jobTimer) return;
   startJobPoll();
 }
 
@@ -3054,7 +3220,13 @@ async function launchPostprocessWindow(assetId, subject) {
     return;
   }
   const q = new URLSearchParams({ asset: assetId, subject });
-  window.open(`/postprocess.html?${q}`, "_blank");
+  const returnUrl = `/?asset=${encodeURIComponent(assetId)}`;
+  try {
+    sessionStorage.setItem("artApp.ppReturn", returnUrl);
+  } catch {
+    /* ignore */
+  }
+  location.assign(`/postprocess.html?${q}`);
 }
 
 function openPostprocess(assetId) {
@@ -3720,6 +3892,19 @@ async function openPath(path) {
   }
 }
 
+async function openApiPortal(provider) {
+  const url = state.apiPortals?.[provider];
+  if (!url) {
+    toast(t("toast.apiPortalMissing"), { variant: "error" });
+    return;
+  }
+  try {
+    await API.post("/api/open-url", { url });
+  } catch {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
+
 async function openPreviewFile() {
   if (!state.assetId) {
     toast(t("toast.selectAsset"));
@@ -4231,6 +4416,7 @@ function bindUi() {
 
   updateAiModeUi();
   renderAiChat([]);
+  if (isAiIntroDismissed()) $("#ai-intro-section")?.classList.add("is-hidden");
 
   $("#form-basic")?.addEventListener("submit", saveBasic);
   $("#form-category")?.addEventListener("submit", saveCategory);
@@ -4282,6 +4468,12 @@ function bindUi() {
       e.preventDefault();
       sendAi();
     }
+  });
+
+  $("#ai-intro-dismiss")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dismissAiIntro();
   });
 
   $("#ai-history")?.addEventListener("click", (e) => {
@@ -4383,6 +4575,9 @@ function bindUi() {
       case "ai-clear":
         await clearAiChat();
         break;
+      case "ai-intro-dismiss":
+        dismissAiIntro();
+        break;
       case "clear-logs":
         await API.del("/api/logs");
         $("#log-body").textContent = "";
@@ -4400,6 +4595,9 @@ function bindUi() {
         break;
       case "test-cloud-api":
         await testCloudApi(btn.dataset.provider, btn);
+        break;
+      case "open-api-portal":
+        await openApiPortal(btn.dataset.provider);
         break;
       case "test-deepseek-api":
         await testDeepseekApi(btn);
@@ -4436,28 +4634,44 @@ function bindUi() {
     if (event.origin !== location.origin) return;
     const data = event.data;
     if (!data || data.type !== "postprocess-applied" || !data.assetId) return;
-    if (data.width != null && data.height != null) {
-      const row = state.assets.find((a) => a.id === data.assetId);
-      if (row) {
-        row.width = data.width;
-        row.height = data.height;
-        if (data.size_label) row.size_label = data.size_label;
-        else row.size_label = `${data.width}×${data.height}`;
-      }
-      if (data.assetId === state.assetId && state.assetFull) {
-        state.assetFull.width = data.width;
-        state.assetFull.height = data.height;
-        const form = $("#form-basic");
-        if (form?.width) form.width.value = data.width;
-        if (form?.height) form.height.value = data.height;
-      }
-      renderAssetList();
-    }
-    if (data.assetId === state.assetId) {
-      loadPreview();
-      loadPreviewInfo(data.assetId);
-    }
+    handlePostprocessApplied(data);
   });
+}
+
+function handlePostprocessApplied(data) {
+  if (!data?.assetId) return;
+  if (data.width != null && data.height != null) {
+    const row = state.assets.find((a) => a.id === data.assetId);
+    if (row) {
+      row.width = data.width;
+      row.height = data.height;
+      if (data.size_label) row.size_label = data.size_label;
+      else row.size_label = `${data.width}×${data.height}`;
+    }
+    if (data.assetId === state.assetId && state.assetFull) {
+      state.assetFull.width = data.width;
+      state.assetFull.height = data.height;
+      const form = $("#form-basic");
+      if (form?.width) form.width.value = data.width;
+      if (form?.height) form.height.value = data.height;
+    }
+    renderAssetList();
+  }
+  if (data.assetId === state.assetId) {
+    loadPreview();
+    loadPreviewInfo(data.assetId);
+  }
+}
+
+function consumePostprocessAppliedNotification() {
+  try {
+    const raw = sessionStorage.getItem("artApp.ppApplied");
+    if (!raw) return;
+    sessionStorage.removeItem("artApp.ppApplied");
+    handlePostprocessApplied(JSON.parse(raw));
+  } catch {
+    /* ignore */
+  }
 }
 
 async function trySelectAssetFromUrl() {
@@ -4477,10 +4691,14 @@ async function bootstrap(pickFirst = true) {
   const useSplash = !appBooted;
   if (!useSplash) showGlobalOverlay(t("splash.reloading"));
   try {
-    await initI18n();
-    applyDomI18n();
-    bindLangSwitcher();
-    onLangChange(() => refreshI18nUi());
+    try {
+      await initI18n();
+      applyDomI18n();
+      bindLangSwitcher();
+      onLangChange(() => refreshI18nUi());
+    } catch (err) {
+      console.error("i18n init failed", err);
+    }
     await API.get("/api/health");
     const data = await API.get("/api/categories");
     state.categories = data.categories || [];
@@ -4499,7 +4717,7 @@ async function bootstrap(pickFirst = true) {
       const j = await API.get("/api/jobs/status");
       if (j.busy || (j.queued_count || 0) > 0 || (j.queue || []).length > 0) {
         state.jobRunId = j.run_id ?? null;
-        state.jobTrack = { active: true, sawBusy: !!j.busy, postOk: true };
+        state.jobTrack = { active: true, sawBusy: !!j.busy, postOk: true, submittedAt: Date.now() };
         if (j.kind) resetJobProg(j.kind);
         updateJobFromApi(j);
         ensureJobPoll();
@@ -4511,6 +4729,7 @@ async function bootstrap(pickFirst = true) {
     updateMainTabsVisibility();
     const visibleTab = $(`#main-tabs .tab[data-tab="${activeTab}"]:not([hidden])`);
     switchTab(visibleTab?.dataset.tab || (categoryHasAssets() ? "ai" : "category"));
+    consumePostprocessAppliedNotification();
   } catch (err) {
     toast(t("toast.backendFailed", { msg: err.message }));
   } finally {

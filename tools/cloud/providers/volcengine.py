@@ -5,12 +5,23 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 
 from cloud.base import CloudGenerateRequest, CloudGenerateResult, CloudProvider, CloudProviderError
-from cloud.http_util import http_json, image_to_data_url
+from cloud.http_util import http_json, image_to_data_url, run_with_progress_heartbeat
 from cloud.registry import CLOUD_GEN_MODE_EDIT, CLOUD_GEN_MODE_I2I, CLOUD_GEN_MODE_TEXT
 
 _DEFAULT_BASE = "https://ark.cn-beijing.volces.com/api/v3"
+_MIN_PIXELS = 3_686_400  # Seedream 4 下限（约 1920×1920）
+
+
+def _api_size(width: int, height: int) -> tuple[int, int]:
+    w = max(1, int(width))
+    h = max(1, int(height))
+    if w * h >= _MIN_PIXELS:
+        return w, h
+    scale = math.sqrt(_MIN_PIXELS / (w * h)) * 1.02
+    return max(w, int(math.ceil(w * scale))), max(h, int(math.ceil(h * scale)))
 
 
 class VolcengineProvider(CloudProvider):
@@ -24,10 +35,11 @@ class VolcengineProvider(CloudProvider):
         if not model:
             return CloudGenerateResult(False, "未配置 Seedream 模型 ID（volcengine_endpoint）")
 
+        api_w, api_h = _api_size(req.width, req.height)
         body: dict = {
             "model": model,
             "prompt": req.prompt,
-            "size": f"{req.width}x{req.height}",
+            "size": f"{api_w}x{api_h}",
             "response_format": "b64_json",
             "watermark": False,
         }
@@ -48,14 +60,31 @@ class VolcengineProvider(CloudProvider):
             CLOUD_GEN_MODE_EDIT: "图像编辑",
         }.get(req.mode, req.mode)
         if progress_cb:
-            progress_cb({"kind": "cloud_task", "status": "RUNNING", "pct": 45, "message": f"即梦 · {label} · 生成中"})
+            progress_cb(
+                {
+                    "kind": "cloud_task",
+                    "status": "SUBMITTING",
+                    "pct": 10,
+                    "message": f"即梦 · {label} · 提交中",
+                }
+            )
 
-        data = http_json(
-            f"{_DEFAULT_BASE}/images/generations",
-            method="POST",
-            headers={"Authorization": f"Bearer {key}"},
-            body=body,
-            timeout=300.0,
+        def _request() -> dict:
+            return http_json(
+                f"{_DEFAULT_BASE}/images/generations",
+                method="POST",
+                headers={"Authorization": f"Bearer {key}"},
+                body=body,
+                timeout=300.0,
+            )
+
+        data = run_with_progress_heartbeat(
+            _request,
+            progress_cb=progress_cb,
+            cancel_event=cancel_event,
+            message=f"即梦 · {label} · 生成中",
+            start_pct=18,
+            max_pct=90,
         )
         items = data.get("data") or []
         if not items:

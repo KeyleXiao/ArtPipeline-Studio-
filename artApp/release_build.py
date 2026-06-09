@@ -166,6 +166,17 @@ def hidden_imports() -> list[str]:
         "postprocess.models",
         "postprocess.templates",
         "postprocess.fonts",
+        "cloud.registry",
+        "cloud.verify",
+        "cloud.http_util",
+        "cloud.runner",
+        "cloud.generator",
+        "cloud.base",
+        "cloud.tencent_sign",
+        "cloud.providers.stability",
+        "cloud.providers.dashscope",
+        "cloud.providers.tencent",
+        "cloud.providers.volcengine",
     ]
 
 
@@ -205,10 +216,9 @@ def pyinstaller_cmd(*, python: str, target: str) -> list[str]:
     cmd.append(str(ENTRY))
 
     # macOS 由 PyInstaller 自动生成 .app；Windows 生成目录 + .exe
-    if target == "win":
-        # 避免 UPX 在部分 Windows 环境误报/杀软拦截
-        cmd.insert(cmd.index("--windowed") + 1, "--noupx")
-    elif target == "mac":
+    # UPX 在 macOS arm64 / 部分杀软环境下会导致 .app 白屏或崩溃
+    cmd.insert(cmd.index("--windowed") + 1, "--noupx")
+    if target == "mac":
         cmd.extend(["--osx-bundle-identifier=cn.vrast.artpipeline.studio"])
 
     return cmd

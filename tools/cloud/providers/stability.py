@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from cloud.base import CloudGenerateRequest, CloudGenerateResult, CloudProvider
-from cloud.http_util import http_multipart
+from cloud.http_util import http_multipart, run_with_progress_heartbeat
 from cloud.registry import CLOUD_GEN_MODE_EDIT, CLOUD_GEN_MODE_I2I, CLOUD_GEN_MODE_TEXT
 
 _BASE = "https://api.stability.ai"
@@ -59,17 +59,27 @@ class StabilityProvider(CloudProvider):
             progress_cb(
                 {
                     "kind": "cloud_task",
-                    "status": "RUNNING",
-                    "pct": 40,
-                    "message": f"Stability · {label} · 生成中",
+                    "status": "SUBMITTING",
+                    "pct": 10,
+                    "message": f"Stability · {label} · 提交中",
                 }
             )
 
-        raw = http_multipart(
-            f"{_BASE}/{ep.lstrip('/')}",
-            fields=fields,
-            files=files,
-            headers={"Authorization": f"Bearer {key}", "Accept": "image/*"},
+        def _request() -> bytes:
+            return http_multipart(
+                f"{_BASE}/{ep.lstrip('/')}",
+                fields=fields,
+                files=files,
+                headers={"Authorization": f"Bearer {key}", "Accept": "image/*"},
+            )
+
+        raw = run_with_progress_heartbeat(
+            _request,
+            progress_cb=progress_cb,
+            cancel_event=cancel_event,
+            message=f"Stability · {label} · 生成中",
+            start_pct=18,
+            max_pct=90,
         )
         if not raw:
             return CloudGenerateResult(False, "Stability 无输出")

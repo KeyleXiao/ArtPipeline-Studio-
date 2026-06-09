@@ -539,8 +539,8 @@
 
         <div class="tab-body hidden gen-tab-body gen-tab-body--fill" id="tab-ai">
           <div class="gen-tab-layout gen-tab-layout--fill">
-            <section class="gen-tab-section gen-tab-section--compact">
-              <div class="settings-section-hero settings-section-hero--ai settings-section-hero--compact">
+            <section class="gen-tab-section gen-tab-section--compact" id="ai-intro-section">
+              <div class="settings-section-hero settings-section-hero--ai settings-section-hero--compact" id="ai-intro-hero">
                 <div class="settings-section-hero-glow" aria-hidden="true"></div>
                 <div class="settings-section-hero-icon" aria-hidden="true">
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a7 7 0 0 1 7 7c0 2.5-1.2 4.7-3 6.1V19a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.9A7 7 0 0 1 5 10a7 7 0 0 1 7-7z"/><path d="M9.5 21h5"/><path d="M10 8h.01M14 8h.01M9.5 11.5a2.5 2.5 0 0 0 3 0"/></svg>
@@ -549,6 +549,9 @@
                   <h3 class="settings-section-title" data-i18n="form.aiTabTitle">AI 助手</h3>
                   <p class="settings-section-desc muted sm" data-i18n="form.aiTabDesc">DeepSeek 驱动；按模式编写提示词、优化工作流或一次配置多项内容。</p>
                 </div>
+                <button type="button" class="ai-intro-dismiss" id="ai-intro-dismiss" data-action="ai-intro-dismiss" data-i18n-title="ai.dismissIntro" data-i18n-aria="ai.dismissIntro" title="关闭提示" aria-label="关闭提示">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
               </div>
             </section>
 
@@ -699,6 +702,7 @@
                     </label>
                   </div>
                   <footer class="cloud-api-card-foot">
+                    <button type="button" class="btn sm ghost" data-action="open-api-portal" data-provider="deepseek" data-i18n="form.openApiPortal">访问官网</button>
                     <button type="button" class="btn sm ghost" data-action="test-deepseek-api" data-i18n="form.cloudTest">测试连接</button>
                   </footer>
                 </article>
@@ -739,6 +743,7 @@
                     </label>
                   </div>
                   <footer class="cloud-api-card-foot">
+                    <button type="button" class="btn sm ghost" data-action="open-api-portal" data-provider="stability" data-i18n="form.openApiPortal">访问官网</button>
                     <button type="button" class="btn sm ghost" data-action="test-cloud-api" data-provider="stability" data-i18n="form.cloudTest">测试连接</button>
                   </footer>
                 </article>
@@ -764,6 +769,7 @@
                     </label>
                   </div>
                   <footer class="cloud-api-card-foot">
+                    <button type="button" class="btn sm ghost" data-action="open-api-portal" data-provider="dashscope" data-i18n="form.openApiPortal">访问官网</button>
                     <button type="button" class="btn sm ghost" data-action="test-cloud-api" data-provider="dashscope" data-i18n="form.cloudTest">测试连接</button>
                   </footer>
                 </article>
@@ -793,6 +799,7 @@
                     </label>
                   </div>
                   <footer class="cloud-api-card-foot">
+                    <button type="button" class="btn sm ghost" data-action="open-api-portal" data-provider="tencent" data-i18n="form.openApiPortal">访问官网</button>
                     <button type="button" class="btn sm ghost" data-action="test-cloud-api" data-provider="tencent" data-i18n="form.cloudTest">测试连接</button>
                   </footer>
                 </article>
@@ -822,6 +829,7 @@
                     </label>
                   </div>
                   <footer class="cloud-api-card-foot">
+                    <button type="button" class="btn sm ghost" data-action="open-api-portal" data-provider="volcengine" data-i18n="form.openApiPortal">访问官网</button>
                     <button type="button" class="btn sm ghost" data-action="test-cloud-api" data-provider="volcengine" data-i18n="form.cloudTest">测试连接</button>
                   </footer>
                 </article>
@@ -889,6 +897,7 @@
         <button type="button" class="job-float-cancel" id="job-float-cancel" data-i18n="job.cancel">停止</button>
       </div>
       <ul class="job-float-queue hidden" id="job-float-queue" aria-label="queue"></ul>
+      <ul class="job-float-cloud hidden" id="job-float-cloud" aria-label="cloud progress"></ul>
     </div>
   </div>
 
@@ -1039,6 +1048,33 @@
     <button type="button" class="ctx-item danger" data-ctx="delete" data-i18n="ctx.delete">删除</button>
   </div>
 
+  <script>
+    (function () {
+      function showBootError(msg) {
+        var splash = document.getElementById("app-splash");
+        if (splash) {
+          splash.classList.remove("is-hiding", "is-done");
+          splash.setAttribute("aria-hidden", "false");
+        }
+        document.body.classList.remove("is-booting");
+        var app = document.getElementById("app");
+        if (app) app.classList.add("is-ready");
+        var sub = document.getElementById("splash-sub");
+        if (sub) {
+          sub.textContent = msg;
+          sub.style.color = "#f87171";
+          sub.style.whiteSpace = "pre-wrap";
+        }
+      }
+      window.addEventListener("error", function (e) {
+        if (e.message) showBootError("界面加载失败：\n" + e.message);
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        var reason = e.reason && (e.reason.message || String(e.reason));
+        if (reason) showBootError("界面加载失败：\n" + reason);
+      });
+    })();
+  </script>
   <script type="module" src="/js/app.js"></script>
 </body>
 </html>

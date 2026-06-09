@@ -11,10 +11,10 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import JSONResponse
 from starlette.types import Receive, Scope, Send
 
-from backend.runtime_paths import bundle_root
+from backend.runtime_paths import resolve_web_dir
 from backend.routes import router
 
-WEB_DIR = bundle_root() / "web"
+WEB_DIR = resolve_web_dir()
 
 
 class StaticFilesSkipApiWrite(StaticFiles):
@@ -61,7 +61,17 @@ def create_app() -> FastAPI:
         if log_file:
             log_bus.log(f"运行日志文件: {log_file}", kind="系统")
 
-    if WEB_DIR.is_dir():
+    if WEB_DIR.is_dir() and (WEB_DIR / "index.html").is_file():
         app.mount("/", StaticFilesSkipApiWrite(directory=str(WEB_DIR), html=True), name="web")
+    else:
+        @app.get("/")
+        async def _missing_web_root() -> JSONResponse:
+            return JSONResponse(
+                {
+                    "detail": "Web 资源未找到",
+                    "web_dir": str(WEB_DIR),
+                },
+                status_code=500,
+            )
 
     return app

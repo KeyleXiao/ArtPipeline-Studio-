@@ -2114,6 +2114,20 @@ async function applyInbox(btn) {
     } catch {
       /* ignore */
     }
+    try {
+      sessionStorage.setItem(
+        "artApp.ppApplied",
+        JSON.stringify({
+          type: "postprocess-applied",
+          assetId,
+          width: r.width,
+          height: r.height,
+          size_label: r.size_label,
+        }),
+      );
+    } catch {
+      /* ignore */
+    }
   }).catch((err) => {
     if (err) setStatus(err.message);
   });
@@ -2649,7 +2663,28 @@ async function bootstrap() {
   zoomFit();
 }
 
+function mainReturnUrl() {
+  if (assetId) return `/?asset=${encodeURIComponent(assetId)}`;
+  try {
+    return sessionStorage.getItem("artApp.ppReturn") || "/";
+  } catch {
+    return "/";
+  }
+}
+
+function bindPostprocessBackLink() {
+  const backBtn = document.querySelector(".pp-head-back");
+  if (!backBtn) return;
+  const href = mainReturnUrl();
+  backBtn.setAttribute("href", href);
+  backBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    location.assign(href);
+  });
+}
+
 async function start() {
+  bindPostprocessBackLink();
   showGlobalOverlay(t("splash.reloading"));
   try {
     await initI18n();

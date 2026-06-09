@@ -5,13 +5,16 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from cloud.base import CloudProviderError, ProgressCallback
+
+T = TypeVar("T")
 
 
 def download_bytes(url: str, *, timeout: float = 120.0) -> bytes:
@@ -124,6 +127,51 @@ def poll_until(
             return result
         time.sleep(interval_s)
     raise CloudProviderError("云任务超时")
+
+
+def run_with_progress_heartbeat(
+    fn: Callable[[], T],
+    *,
+    progress_cb: ProgressCallback | None = None,
+    cancel_event: Any | None = None,
+    message: str = "生成中",
+    start_pct: int = 12,
+    max_pct: int = 92,
+    interval_s: float = 2.0,
+) -> T:
+    """在阻塞请求期间定期上报进度（适用于无轮询接口的同步云 API）。"""
+    result_box: dict[str, T] = {}
+    error_box: dict[str, BaseException] = {}
+    done = threading.Event()
+
+    def worker() -> None:
+        try:
+            result_box["value"] = fn()
+        except BaseException as exc:
+            error_box["exc"] = exc
+        finally:
+            done.set()
+
+    threading.Thread(target=worker, daemon=True, name="cloud-progress").start()
+    pct = start_pct
+    tick = 0
+    while not done.wait(timeout=interval_s):
+        if cancel_event and cancel_event.is_set():
+            raise CloudProviderError("用户取消生成")
+        tick += 1
+        pct = min(max_pct, start_pct + tick * 4)
+        if progress_cb:
+            progress_cb(
+                {
+                    "kind": "cloud_task",
+                    "status": "RUNNING",
+                    "pct": pct,
+                    "message": message,
+                }
+            )
+    if "exc" in error_box:
+        raise error_box["exc"]
+    return result_box["value"]
 
 
 def cloud_keys_from_defaults(defaults: dict[str, Any]) -> dict[str, str]:

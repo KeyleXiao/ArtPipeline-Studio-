@@ -73,6 +73,25 @@ def provider_meta(provider_id: str) -> dict[str, Any]:
     return dict((load_registry().get("providers") or {}).get(provider_id) or {})
 
 
+def settings_api_portals() -> dict[str, str]:
+    """全局设置 · 各平台 API 申请页 URL（provider id → apply_url）。"""
+    reg = load_registry()
+    out: dict[str, str] = {}
+    for pid, prov in (reg.get("providers") or {}).items():
+        url = str(prov.get("apply_url") or "").strip()
+        if url:
+            out[str(pid)] = url
+    for pid, meta in (reg.get("settings_portals") or {}).items():
+        url = str((meta or {}).get("apply_url") or "").strip()
+        if url:
+            out[str(pid)] = url
+    return out
+
+
+def allowed_api_portal_urls() -> frozenset[str]:
+    return frozenset(settings_api_portals().values())
+
+
 def max_parallel_for_provider(provider_id: str, global_max: int) -> int:
     prov = provider_meta(provider_id)
     cap = int(prov.get("default_max_parallel") or global_max or 3)

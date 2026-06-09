@@ -36,6 +36,7 @@
       "region": "global",
       "key_fields": ["stability"],
       "default_max_parallel": 3,
+      "apply_url": "https://platform.stability.ai/account/keys",
       "docs_url": "https://platform.stability.ai/docs"
     },
     "dashscope": {
@@ -44,7 +45,8 @@
       "region": "cn",
       "key_fields": ["dashscope"],
       "default_max_parallel": 3,
-      "docs_url": "https://help.aliyun.com/zh/model-studio/text-to-image"
+      "apply_url": "https://bailian.console.aliyun.com/",
+      "docs_url": "https://help.aliyun.com/zh/model-studio/get-api-key"
     },
     "tencent": {
       "label_zh": "腾讯混元",
@@ -52,6 +54,7 @@
       "region": "cn",
       "key_fields": ["tencent_secret_id", "tencent_secret_key"],
       "default_max_parallel": 1,
+      "apply_url": "https://console.cloud.tencent.com/cam/capi",
       "docs_url": "https://cloud.tencent.com/document/product/1668"
     },
     "volcengine": {
@@ -60,7 +63,13 @@
       "region": "cn",
       "key_fields": ["volcengine"],
       "default_max_parallel": 3,
+      "apply_url": "https://console.volcengine.com/ark",
       "docs_url": "https://www.volcengine.com/docs/82379/1541523"
+    }
+  },
+  "settings_portals": {
+    "deepseek": {
+      "apply_url": "https://platform.deepseek.com/api_keys"
     }
   },
   "models": [

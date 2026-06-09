@@ -2769,8 +2769,59 @@ dialog select:focus-visible,
 }
 
 .job-float-queue-kind {
+  font-size: 0.72rem;
   color: var(--text-muted);
-  font-size: 0.68rem;
+}
+
+.job-float-cloud {
+  list-style: none;
+  margin: 0;
+  padding: 8px 10px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.job-float-cloud.hidden {
+  display: none;
+}
+
+.job-float-cloud-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
+  font-size: 0.76rem;
+}
+
+.job-float-cloud-pct {
+  min-width: 2.4rem;
+  font-variant-numeric: tabular-nums;
+  color: #fcd34d;
+  font-weight: 600;
+}
+
+.job-float-cloud-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.job-float-cloud-label {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.job-float-cloud-kind {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .log-fab {
@@ -4168,6 +4219,57 @@ dialog menu {
   border-color: rgba(251, 191, 36, 0.3);
 }
 
+#ai-intro-section.is-hidden {
+  display: none !important;
+}
+
+#ai-intro-hero {
+  position: relative;
+}
+
+#ai-intro-hero .ai-intro-dismiss {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+  font: inherit;
+  line-height: 1;
+  color: rgba(252, 211, 77, 0.55);
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+  pointer-events: auto;
+}
+
+#ai-intro-hero:hover .ai-intro-dismiss,
+#ai-intro-hero .ai-intro-dismiss:hover,
+#ai-intro-hero .ai-intro-dismiss:focus-visible {
+  opacity: 1;
+  color: rgba(252, 211, 77, 0.95);
+}
+
+#ai-intro-hero .ai-intro-dismiss:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+#ai-intro-hero .ai-intro-dismiss svg {
+  display: block;
+  pointer-events: none;
+}
+
 .settings-section-hero--compact {
   padding: 12px 14px;
 }
@@ -4641,6 +4743,8 @@ dialog menu {
 .cloud-api-card-foot {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
   padding: 8px 14px 12px;
 }
 

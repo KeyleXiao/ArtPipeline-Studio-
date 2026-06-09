@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import time
 import uuid
+import webbrowser
 from pathlib import Path
 from typing import Any
 
@@ -253,6 +254,10 @@ class AiChatBody(BaseModel):
 
 class OpenPathBody(BaseModel):
     path: str
+
+
+class OpenUrlBody(BaseModel):
+    url: str
 
 
 class PickImageFileBody(BaseModel):
@@ -544,6 +549,12 @@ async def stream_logs() -> StreamingResponse:
 # ── Settings ─────────────────────────────────────────────
 
 
+def _settings_api_portals() -> dict[str, str]:
+    from cloud.registry import settings_api_portals
+
+    return settings_api_portals()
+
+
 @router.get("/settings")
 def get_settings() -> dict[str, Any]:
     from paths import default_log_dir
@@ -568,6 +579,7 @@ def get_settings() -> dict[str, Any]:
         "deepseek_model": str(d.get("deepseek_model", "")),
         "cloud_max_concurrent": int(d.get("cloud_max_concurrent") or 3),
         "cloud_api_keys": dict(d.get("cloud_api_keys") or {}),
+        "api_portals": _settings_api_portals(),
     }
 
 
@@ -2579,6 +2591,19 @@ def open_path(body: OpenPathBody) -> dict[str, str]:
     if not p.exists():
         raise HTTPException(404, "路径不存在")
     subprocess.run(["open", str(p)], check=False)
+    return {"status": "ok"}
+
+
+@router.post("/open-url")
+def open_url(body: OpenUrlBody) -> dict[str, str]:
+    from cloud.registry import allowed_api_portal_urls
+
+    url = str(body.url or "").strip()
+    if not url:
+        raise HTTPException(400, "url 为空")
+    if url not in allowed_api_portal_urls():
+        raise HTTPException(400, "不允许打开该链接")
+    webbrowser.open(url, new=2)
     return {"status": "ok"}
 
 

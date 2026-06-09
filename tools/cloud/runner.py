@@ -71,7 +71,6 @@ def run_cloud_batch(
             return GenerateResult(asset.id, False, "已取消")
         tracker.upsert(
             asset.id,
-            asset_id=asset.id,
             filename=asset.filename,
             status="PENDING",
             pct=5,
@@ -83,7 +82,6 @@ def run_cloud_batch(
         def inner_progress(info: dict[str, Any]) -> None:
             tracker.upsert(
                 asset.id,
-                asset_id=asset.id,
                 filename=asset.filename,
                 status=str(info.get("status") or "RUNNING"),
                 pct=int(info.get("pct") or 0),
@@ -111,8 +109,10 @@ def run_cloud_batch(
             asset.id,
             status="SUCCEEDED" if result.ok else "FAILED",
             pct=100 if result.ok else 0,
-            message="完成" if result.ok else result.message,
+            message="完成" if result.ok else (result.message or "云生成失败"),
         )
+        if not result.ok and log:
+            log(f"FAIL {asset.filename}: {result.message or '云生成失败'}")
         if result.ok and export_after:
             pipeline.export_one(asset, log=log)
         if progress_cb:
@@ -128,7 +128,10 @@ def run_cloud_batch(
                 results.append(fut.result())
             except Exception as exc:
                 asset = futures[fut]
-                results.append(GenerateResult(asset.id, False, str(exc)))
+                msg = str(exc)
+                results.append(GenerateResult(asset.id, False, msg))
+                if log:
+                    log(f"FAIL {asset.filename}: {msg}")
     return results
 
 
