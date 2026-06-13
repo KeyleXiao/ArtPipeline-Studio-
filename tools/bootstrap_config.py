@@ -606,11 +606,16 @@ def build_default_config() -> dict:
             )
         )
 
+    from app_release import APP_VERSION, DEFAULT_RELEASE_NOTES
+
     return {
         "version": 1,
+        "app_version": APP_VERSION,
+        "release_notes": dict(DEFAULT_RELEASE_NOTES),
         "defaults": {
             "project_root": "",
             "art_pipeline_root": "",
+            "welcome_dismissed_version": "",
             "comfyui_url": "http://127.0.0.1:8188",
             "checkpoint": "animagineXL_v3.safetensors",
             "steps": 35,

@@ -43,11 +43,14 @@ def http_json(
     method: str = "GET",
     headers: dict[str, str] | None = None,
     body: dict | None = None,
+    body_text: str | None = None,
     timeout: float = 120.0,
 ) -> Any:
     hdrs = dict(headers or {})
     data = None
-    if body is not None:
+    if body_text is not None:
+        data = body_text.encode("utf-8")
+    elif body is not None:
         data = json.dumps(body).encode("utf-8")
         hdrs.setdefault("Content-Type", "application/json")
     req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
@@ -178,13 +181,14 @@ def cloud_keys_from_defaults(defaults: dict[str, Any]) -> dict[str, str]:
     raw = defaults.get("cloud_api_keys") or {}
     if not isinstance(raw, dict):
         raw = {}
+    from cloud.tencent_maas import resolve_tencent_api_key
+
     out = {
         "stability": str(raw.get("stability") or defaults.get("stability_api_key") or "").strip(),
         "dashscope": str(
             raw.get("dashscope") or defaults.get("vision_api_key") or defaults.get("dashscope_api_key") or ""
         ).strip(),
-        "tencent_secret_id": str(raw.get("tencent_secret_id") or "").strip(),
-        "tencent_secret_key": str(raw.get("tencent_secret_key") or "").strip(),
+        "tencent": resolve_tencent_api_key(raw),
         "volcengine": str(raw.get("volcengine") or "").strip(),
         "volcengine_endpoint": str(raw.get("volcengine_endpoint") or "").strip(),
     }

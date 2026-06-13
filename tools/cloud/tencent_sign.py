@@ -74,7 +74,8 @@ def tencent_request(
         "X-TC-Timestamp": timestamp,
         "X-TC-Region": region,
     }
-    data = http_json(f"https://{host}", method="POST", headers=headers, body=payload)
+    # 必须与签名时的 body 字节完全一致（不能用默认 json.dumps 的空格格式）
+    data = http_json(f"https://{host}", method="POST", headers=headers, body_text=body)
     resp = data.get("Response") or data
     if resp.get("Error"):
         err = resp["Error"]

@@ -52,10 +52,10 @@
       "label_zh": "腾讯混元",
       "label_en": "Tencent Hunyuan",
       "region": "cn",
-      "key_fields": ["tencent_secret_id", "tencent_secret_key"],
+      "key_fields": ["tencent"],
       "default_max_parallel": 1,
-      "apply_url": "https://console.cloud.tencent.com/cam/capi",
-      "docs_url": "https://cloud.tencent.com/document/product/1668"
+      "apply_url": "https://console.cloud.tencent.com/tokenhub",
+      "docs_url": "https://cloud.tencent.com/document/product/1823/130080"
     },
     "volcengine": {
       "label_zh": "火山即梦",
@@ -120,13 +120,13 @@
       "provider": "tencent",
       "label_zh": "混元 · 3.0",
       "label_en": "Hunyuan · 3.0",
-      "summary_zh": "混元生图 3.0 · 文生图 / 图生图 / 图像编辑",
-      "summary_en": "Hunyuan Image 3.0 generate & edit",
-      "api_model": "SubmitTextToImageJob",
+      "summary_zh": "混元生图 3.0 · TokenHub · 文生图 / 图生图 / 图像编辑",
+      "summary_en": "Hunyuan Image 3.0 via TokenHub",
+      "api_model": "hy-image-v3.0",
       "modes": {
-        "text_to_image": { "action": "SubmitTextToImageJob", "query": "QueryTextToImageJob" },
-        "image_to_image": { "action": "ImageToImage" },
-        "image_edit": { "action": "SubmitTextToImageJob", "requires_images": true }
+        "text_to_image": { "endpoint": "api/image/submit", "query": "api/image/query" },
+        "image_to_image": { "endpoint": "api/image/submit", "requires_images": true },
+        "image_edit": { "endpoint": "api/image/submit", "requires_images": true }
       }
     },
     {

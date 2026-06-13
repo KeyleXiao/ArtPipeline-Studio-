@@ -55,8 +55,7 @@ def is_cloud_checkpoint(value: str) -> bool:
   "cloud_api_keys": {
     "stability": "",
     "dashscope": "",
-    "tencent_secret_id": "",
-    "tencent_secret_key": "",
+    "tencent": "",
     "volcengine": ""
   },
   "cloud_max_concurrent": 3

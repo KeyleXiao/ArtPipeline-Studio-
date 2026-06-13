@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import time
+import base64
 from typing import Any
 
 from cloud.base import CloudGenerateRequest, CloudGenerateResult, CloudProvider, CloudProviderError
@@ -11,6 +11,40 @@ from cloud.http_util import download_bytes, http_json, image_to_data_url, poll_u
 from cloud.registry import CLOUD_GEN_MODE_EDIT, CLOUD_GEN_MODE_I2I, CLOUD_GEN_MODE_TEXT
 
 _BASE = "https://dashscope.aliyuncs.com/api/v1"
+
+
+def _extract_image_from_output(out: dict[str, Any]) -> tuple[str | None, bytes | None]:
+    """从任务 output 提取图片。wan2.6 用 choices；wan2.5 及更早用 results。"""
+    for choice in out.get("choices") or []:
+        if not isinstance(choice, dict):
+            continue
+        msg = choice.get("message") or {}
+        for item in msg.get("content") or []:
+            if not isinstance(item, dict):
+                continue
+            img = item.get("image")
+            if not img:
+                continue
+            img_s = str(img)
+            if img_s.startswith(("http://", "https://")):
+                return img_s, None
+            if img_s.startswith("data:"):
+                raw = img_s.split(",", 1)[-1]
+                return None, base64.b64decode(raw)
+            try:
+                return None, base64.b64decode(img_s)
+            except Exception:
+                continue
+
+    for row in out.get("results") or []:
+        if not isinstance(row, dict):
+            continue
+        if row.get("b64_image"):
+            return None, base64.b64decode(str(row["b64_image"]))
+        url = row.get("url")
+        if url:
+            return str(url), None
+    return None, None
 
 
 class DashScopeProvider(CloudProvider):
@@ -81,20 +115,15 @@ class DashScopeProvider(CloudProvider):
                 raise CloudProviderError(f"万相任务失败: {msg}")
             if st != "SUCCEEDED":
                 return None
-            results = out.get("results") or []
-            if not results:
-                raise CloudProviderError("万相任务无输出")
-            r0 = results[0]
-            if r0.get("b64_image"):
-                import base64
-
-                return base64.b64decode(r0["b64_image"])
-            url = r0.get("url")
+            url, raw = _extract_image_from_output(out)
+            if raw:
+                return raw
             if url:
                 if progress_cb:
                     progress_cb({"kind": "cloud_task", "status": "DOWNLOADING", "pct": 95, "message": "万相 · 下载中"})
                 return download_bytes(url)
-            raise CloudProviderError("万相结果无 url/b64")
+            keys = ", ".join(sorted(out.keys()))
+            raise CloudProviderError(f"万相任务无输出（响应字段: {keys or 'empty'}）")
 
         return poll_until(check, cancel_event=cancel_event)
 

@@ -641,6 +641,34 @@ def put_settings(body: dict[str, Any]) -> dict[str, str]:
     return {"status": "saved"}
 
 
+@router.get("/app/welcome")
+def get_app_welcome() -> dict[str, Any]:
+    from app_release import APP_VERSION, DEFAULT_RELEASE_NOTES
+
+    config = get_config_manager()
+    app_version = str(config.data.get("app_version") or APP_VERSION).strip() or APP_VERSION
+    release_notes = config.data.get("release_notes")
+    if not isinstance(release_notes, dict):
+        release_notes = dict(DEFAULT_RELEASE_NOTES)
+    dismissed = str(config.defaults.get("welcome_dismissed_version", "")).strip()
+    return {
+        "app_version": app_version,
+        "release_notes": release_notes,
+        "show": dismissed != app_version,
+    }
+
+
+@router.put("/app/welcome/dismiss")
+def dismiss_app_welcome() -> dict[str, str]:
+    from app_release import APP_VERSION
+
+    config = get_config_manager()
+    app_version = str(config.data.get("app_version") or APP_VERSION).strip() or APP_VERSION
+    config.defaults["welcome_dismissed_version"] = app_version
+    config.save()
+    return {"status": "ok"}
+
+
 @router.get("/settings/paths/default")
 def default_paths() -> dict[str, str]:
     from paths import ART_ROOT, PROJECT_ROOT, default_log_dir

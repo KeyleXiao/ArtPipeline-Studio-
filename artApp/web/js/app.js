@@ -8,6 +8,7 @@ import {
   applyDomI18n,
   bindLangSwitcher,
   onLangChange,
+  getLang,
 } from "./i18n.js";
 import {
   bindRipple,
@@ -116,6 +117,7 @@ function refreshI18nUi() {
   if (pill && !pill.dataset.busy) pill.textContent = t("job.ready");
   if (jobProg.visible) renderJobFloat();
   if (state.previewInfo) renderPreviewInfo(state.previewInfo);
+  if (welcomeDialogData && $("#dlg-welcome")?.open) fillWelcomeReleaseNotes(welcomeDialogData);
 }
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -1035,6 +1037,15 @@ async function pickRefImage(btn) {
   });
 }
 
+function resolveTencentApiKey(keys) {
+  if (keys.tencent?.trim()) return keys.tencent.trim();
+  const sk = keys.tencent_secret_key?.trim();
+  if (sk?.startsWith("sk-")) return sk;
+  const sid = keys.tencent_secret_id?.trim();
+  if (sid?.startsWith("sk-")) return sid;
+  return sk || "";
+}
+
 async function loadSettingsForm() {
   const data = await API.get("/api/settings");
   const form = $("#form-settings");
@@ -1059,8 +1070,7 @@ async function loadSettingsForm() {
   const map = {
     "cloud_api_keys.stability": keys.stability,
     "cloud_api_keys.dashscope": keys.dashscope,
-    "cloud_api_keys.tencent_secret_id": keys.tencent_secret_id,
-    "cloud_api_keys.tencent_secret_key": keys.tencent_secret_key,
+    "cloud_api_keys.tencent": resolveTencentApiKey(keys),
     "cloud_api_keys.volcengine": keys.volcengine,
     "cloud_api_keys.volcengine_endpoint": keys.volcengine_endpoint,
   };
@@ -1077,7 +1087,7 @@ async function loadSettingsForm() {
 const CLOUD_API_FIELD_MAP = {
   stability: ["cloud_api_keys.stability"],
   dashscope: ["cloud_api_keys.dashscope"],
-  tencent: ["cloud_api_keys.tencent_secret_id", "cloud_api_keys.tencent_secret_key"],
+  tencent: ["cloud_api_keys.tencent"],
   volcengine: ["cloud_api_keys.volcengine", "cloud_api_keys.volcengine_endpoint"],
 };
 
@@ -1101,8 +1111,7 @@ function cloudKeysFromForm() {
   for (const name of [
     "cloud_api_keys.stability",
     "cloud_api_keys.dashscope",
-    "cloud_api_keys.tencent_secret_id",
-    "cloud_api_keys.tencent_secret_key",
+    "cloud_api_keys.tencent",
     "cloud_api_keys.volcengine",
     "cloud_api_keys.volcengine_endpoint",
   ]) {
@@ -3936,6 +3945,70 @@ function bindDialogDismiss(dlg) {
   });
 }
 
+/** @type {{ app_version?: string, release_notes?: Record<string, string> } | null} */
+let welcomeDialogData = null;
+
+function fillWelcomeReleaseNotes(data) {
+  const el = $("#welcome-release-notes");
+  if (!el || !data) return;
+  const lang = getLang();
+  const notes =
+    data.release_notes?.[lang] ||
+    data.release_notes?.["zh-CN"] ||
+    data.release_notes?.["en-US"] ||
+    "";
+  const version = data.app_version || "1.0";
+  el.textContent = notes
+    ? `${t("welcome.releasePrefix", { version })} · ${notes}`
+    : t("welcome.releasePrefix", { version });
+}
+
+function fillWelcomeDialog(data) {
+  welcomeDialogData = data;
+  const badge = $("#welcome-version-badge");
+  if (badge) badge.textContent = `v${data.app_version || "1.0"}`;
+  fillWelcomeReleaseNotes(data);
+  const skip = $("#welcome-skip-checkbox");
+  if (skip) skip.checked = false;
+}
+
+async function closeWelcomeDialog(persistSkip) {
+  const dlg = $("#dlg-welcome");
+  if (persistSkip) {
+    try {
+      await API.put("/api/app/welcome/dismiss", {});
+    } catch {
+      /* ignore */
+    }
+  }
+  dlg?.close();
+}
+
+async function maybeShowWelcomeDialog() {
+  try {
+    const data = await API.get("/api/app/welcome");
+    if (!data.show) return;
+    fillWelcomeDialog(data);
+    const dlg = $("#dlg-welcome");
+    if (!dlg) return;
+    dlg.showModal();
+  } catch {
+    /* ignore */
+  }
+}
+
+function bindWelcomeDialog() {
+  const dlg = $("#dlg-welcome");
+  if (!dlg) return;
+  dlg.addEventListener("cancel", (e) => {
+    e.preventDefault();
+    void closeWelcomeDialog($("#welcome-skip-checkbox")?.checked);
+  });
+  $("#welcome-start")?.addEventListener("click", () => {
+    void closeWelcomeDialog($("#welcome-skip-checkbox")?.checked);
+  });
+}
+
 async function newCategoryDialog() {
   const dlg = $("#dlg-new-cat");
   const form = $("#form-new-cat");
@@ -4373,6 +4446,7 @@ function bindUi() {
   bindDialogDismiss($("#dlg-rename-category"));
   bindDialogDismiss($("#dlg-confirm"));
   bindDialogDismiss($("#dlg-pp-subject"));
+  bindWelcomeDialog();
 
   $("#preview-img")?.addEventListener("error", () => {
     const asset = state.assets.find((a) => a.id === state.assetId);
@@ -4736,6 +4810,7 @@ async function bootstrap(pickFirst = true) {
     if (useSplash) await hideSplash(document.getElementById("app-splash"));
     else hideGlobalOverlay();
     appBooted = true;
+    if (useSplash) await maybeShowWelcomeDialog();
   }
 }
 

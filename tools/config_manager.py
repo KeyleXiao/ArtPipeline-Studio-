@@ -213,7 +213,23 @@ class ConfigManager:
         else:
             self.data = json.loads(self.path.read_text(encoding="utf-8"))
         self._invalidate_caches()
+        self._ensure_app_meta()
         self._ensure_root_paths_in_config()
+
+    def _ensure_app_meta(self) -> None:
+        """补全 app_version / release_notes（欢迎弹窗与版本说明）。"""
+        from app_release import APP_VERSION, DEFAULT_RELEASE_NOTES
+
+        dirty = False
+        if not str(self.data.get("app_version", "")).strip():
+            self.data["app_version"] = APP_VERSION
+            dirty = True
+        rn = self.data.get("release_notes")
+        if not isinstance(rn, dict) or not str(rn.get("zh-CN", "")).strip():
+            self.data["release_notes"] = dict(DEFAULT_RELEASE_NOTES)
+            dirty = True
+        if dirty:
+            self.save()
 
     def _ensure_root_paths_in_config(self) -> None:
         """首次加载时写入推断的项目根路径（便于分类相对路径解析）。"""

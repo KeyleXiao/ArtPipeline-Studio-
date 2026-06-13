@@ -10,7 +10,7 @@ from typing import Any
 
 from cloud.base import CloudProviderError
 from cloud.http_util import http_json
-from cloud.tencent_sign import tencent_request
+from cloud.tencent_maas import MODEL_VERIFY, maas_post, resolve_tencent_api_key
 
 
 def _http_status(
@@ -70,25 +70,28 @@ def verify_dashscope(key: str) -> tuple[bool, str]:
     return True, "已连接 · DashScope 可用"
 
 
-def verify_tencent(secret_id: str, secret_key: str) -> tuple[bool, str]:
-    if not secret_id or not secret_key:
-        return False, "请填写 SecretId 与 SecretKey"
+def verify_tencent(api_key: str) -> tuple[bool, str]:
+    if not api_key:
+        return False, "请填写 TokenHub API Key"
     try:
-        tencent_request(
-            secret_id=secret_id,
-            secret_key=secret_key,
-            action="QueryTextToImageJob",
-            payload={"JobId": "artpipeline-verify-probe"},
+        data = maas_post(
+            api_key,
+            "chat/completions",
+            {
+                "model": MODEL_VERIFY,
+                "messages": [{"role": "user", "content": "ping"}],
+                "stream": False,
+            },
+            timeout=30.0,
         )
-        return True, "已连接 · 混元 API 可用"
     except CloudProviderError as exc:
         msg = str(exc)
-        upper = msg.upper()
-        if "AUTHFAILURE" in upper or "UNAUTHORIZED" in upper or "SIGNATURE" in upper:
-            return False, "SecretId / SecretKey 无效"
-        if any(k in upper for k in ("INVALID", "NOTFOUND", "RESOURCE", "JOB")):
-            return True, "已连接 · 混元 API 可用"
-        return False, msg[:160]
+        if "401" in msg or "403" in msg or "invalid" in msg.lower():
+            return False, "API Key 无效或已过期"
+        return False, msg.replace("HTTP ", "")[:160]
+    if data.get("choices"):
+        return True, "已连接 · TokenHub 混元可用"
+    return True, "已连接 · TokenHub 混元可用"
 
 
 def verify_volcengine(key: str, endpoint: str) -> tuple[bool, str]:
@@ -116,10 +119,7 @@ def verify_cloud_provider(provider_id: str, keys: dict[str, str]) -> dict[str, A
         elif pid == "dashscope":
             ok, message = verify_dashscope(str(k.get("dashscope") or "").strip())
         elif pid == "tencent":
-            ok, message = verify_tencent(
-                str(k.get("tencent_secret_id") or "").strip(),
-                str(k.get("tencent_secret_key") or "").strip(),
-            )
+            ok, message = verify_tencent(resolve_tencent_api_key(k))
         elif pid == "volcengine":
             ok, message = verify_volcengine(
                 str(k.get("volcengine") or "").strip(),

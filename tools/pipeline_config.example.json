@@ -1,8 +1,14 @@
 {
   "version": 1,
+  "app_version": "1.0",
+  "release_notes": {
+    "zh-CN": "首发版本：ComfyUI 本地 SDXL 生图、多云 API 批量生图、DeepSeek AI 助手、后处理工作台与 Unity 一键导出。",
+    "en-US": "Initial release: ComfyUI local SDXL, multi-cloud batch generation, DeepSeek AI assistant, post-process workspace, and Unity export."
+  },
   "defaults": {
     "project_root": "",
     "art_pipeline_root": "",
+    "welcome_dismissed_version": "",
     "comfyui_url": "http://127.0.0.1:8188",
     "checkpoint": "animagineXL_v3.safetensors",
     "steps": 35,

@@ -788,14 +788,10 @@
                       <span class="cloud-api-status-text" data-i18n="form.cloudStatusIdle">未验证</span>
                     </div>
                   </header>
-                  <div class="cloud-api-card-body cloud-api-field-grid">
+                  <div class="cloud-api-card-body">
                     <label class="cloud-api-field">
-                      <span data-i18n="form.cloudKeyTencentId">SecretId</span>
-                      <input name="cloud_api_keys.tencent_secret_id" autocomplete="off" data-cloud-field="tencent_secret_id" />
-                    </label>
-                    <label class="cloud-api-field">
-                      <span data-i18n="form.cloudKeyTencentKey">SecretKey</span>
-                      <input name="cloud_api_keys.tencent_secret_key" type="password" autocomplete="off" data-cloud-field="tencent_secret_key" />
+                      <span data-i18n="form.cloudKeyTencent">TokenHub API Key</span>
+                      <input name="cloud_api_keys.tencent" type="password" autocomplete="off" data-cloud-field="tencent" placeholder="sk-..." />
                     </label>
                   </div>
                   <footer class="cloud-api-card-foot">
@@ -900,6 +896,61 @@
       <ul class="job-float-cloud hidden" id="job-float-cloud" aria-label="cloud progress"></ul>
     </div>
   </div>
+
+  <dialog id="dlg-welcome" class="welcome-dialog">
+    <div class="welcome-dialog-glass">
+      <header class="welcome-header">
+        <div class="welcome-logo-wrap" aria-hidden="true">
+          <img class="welcome-logo" src="/assets/app_icon.png" width="48" height="48" alt="" />
+          <span class="welcome-logo-ring"></span>
+        </div>
+        <div class="welcome-header-copy">
+          <span class="welcome-version-badge" id="welcome-version-badge">v1.0</span>
+          <h2 data-i18n="welcome.title">欢迎使用 ArtPipeline Studio</h2>
+          <p class="welcome-subtitle muted sm" data-i18n="welcome.subtitle">美术资源流水线 · 本地与云端生图一站搞定</p>
+        </div>
+      </header>
+      <div class="welcome-body">
+        <section class="welcome-section">
+          <h3 data-i18n="welcome.sectionFeatures">本工具能做什么</h3>
+          <ul class="welcome-list">
+            <li data-i18n="welcome.feature1">按分类管理 source / inbox / Unity 导出路径</li>
+            <li data-i18n="welcome.feature2">ComfyUI 本地 SDXL 生图，或批量调用云 API（即梦、Stability 等）</li>
+            <li data-i18n="welcome.feature3">DeepSeek AI 助手：生成与优化提示词、工作流建议</li>
+            <li data-i18n="welcome.feature4">后处理工作台与一键导出到游戏工程</li>
+          </ul>
+        </section>
+        <section class="welcome-section">
+          <h3 data-i18n="welcome.sectionKeys">首次使用请填写 API Key</h3>
+          <p class="welcome-lead muted sm" data-i18n="welcome.keysIntro">前往「全局设置」Tab 配置以下密钥（仅存于本地 pipeline_config.json）：</p>
+          <ul class="welcome-list welcome-list--compact">
+            <li data-i18n="welcome.keyDeepseek">DeepSeek API Key — 启用 AI 助手</li>
+            <li data-i18n="welcome.keyCloud">云生图密钥 — 按资源所选服务商填写（即梦 / Stability / 腾讯 / 阿里等）</li>
+            <li data-i18n="welcome.keyComfy">ComfyUI URL — 本地生图需服务在线（默认 http://127.0.0.1:8188）</li>
+          </ul>
+        </section>
+        <section class="welcome-section">
+          <h3 data-i18n="welcome.sectionPaths">全局路径需要填写什么</h3>
+          <p class="welcome-lead muted sm" data-i18n="welcome.pathsIntro">同样在「全局设置 → 路径与工作区」中配置：</p>
+          <ul class="welcome-list welcome-list--compact">
+            <li data-i18n="welcome.pathProject">游戏引擎项目根 — Unity 工程根目录，导出资源的目标位置</li>
+            <li data-i18n="welcome.pathArt">ArtPipeline 根 — 含 source、inbox、workflows 的流水线目录</li>
+            <li data-i18n="welcome.pathLog">运行日志目录 — 可选；留空则使用系统默认位置</li>
+          </ul>
+        </section>
+      </div>
+      <footer class="welcome-footer">
+        <p class="welcome-release muted sm" id="welcome-release-notes" aria-live="polite"></p>
+        <div class="welcome-footer-actions">
+          <label class="welcome-skip">
+            <input type="checkbox" id="welcome-skip-checkbox" />
+            <span data-i18n="welcome.skipNext">下次不再显示</span>
+          </label>
+          <button type="button" class="btn primary" id="welcome-start" data-i18n="welcome.start">开始使用</button>
+        </div>
+      </footer>
+    </div>
+  </dialog>
 
   <dialog id="dlg-new-cat">
     <form id="form-new-cat" class="dialog-form" novalidate>

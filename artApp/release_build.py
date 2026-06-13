@@ -172,6 +172,7 @@ def hidden_imports() -> list[str]:
         "cloud.runner",
         "cloud.generator",
         "cloud.base",
+        "cloud.tencent_maas",
         "cloud.tencent_sign",
         "cloud.providers.stability",
         "cloud.providers.dashscope",
